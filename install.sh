@@ -16,10 +16,17 @@ SRC=$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)
 if [ ! -f "$SRC/lib/hook" ]; then
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' EXIT
-  # The latest release, falling back to main when the API is unreachable. This repeats `undead upgrade`'s tag lookup
-  # on purpose: install.sh runs before undead exists, so it can't source lib/common.zsh and stays POSIX sh.
-  TAG=$(curl -fsSL "https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest" 2>/dev/null |
-        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  # The latest release, falling back to main when GitHub gives nothing. The tag comes from the redirect the release
+  # page performs, because the API allows only 60 unauthenticated calls an hour per network address and a shared
+  # office address runs out of them; the API is the fallback. This repeats `undead upgrade`'s lookup on purpose:
+  # install.sh runs before undead exists, so it can't source lib/common.zsh and stays POSIX sh.
+  TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$REPO/releases/latest" 2>/dev/null |
+        sed -n 's|.*/tag/\(v[0-9][0-9.]*\)$|\1|p')
+  if [ -z "$TAG" ]; then
+    TAG=$(curl -fsSL "https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest" 2>/dev/null |
+          sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  fi
+  case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) TAG= ;; esac
   if [ -n "$TAG" ]; then
     echo "Downloading undead $TAG..."
     URL="$REPO/archive/refs/tags/$TAG.tar.gz"

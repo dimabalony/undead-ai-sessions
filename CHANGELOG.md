@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- `undead upgrade` and `install.sh` find the latest release without the GitHub API, whose unauthenticated limit of 60
+  requests an hour per network address blocked an office upgrade; rate limits are named when they do happen
+
 ## 0.3.1
 
 - `undead doctor` finds the tab's shell when it runs inside an agent (from Claude Code's Bash tool it used to warn

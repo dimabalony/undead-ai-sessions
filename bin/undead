@@ -289,8 +289,43 @@ cmd_adopt() {
 
 # Replaces bin/ and lib/ under the install directory with the latest release. The hook paths don't change, so there
 # is nothing to re-install and Codex doesn't ask to trust the hook again. Homebrew installs are left to brew.
+# The tag of the latest release. GitHub's API allows only 60 unauthenticated calls an hour per network address, and a
+# shared office address runs out of them without undead's help, so the tag comes from the redirect that the release
+# page performs; the API is the fallback. On failure REPLY carries the line to show.
+upgrade_latest_tag() {
+  local url hdr body code reset mins api=https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest
+  REPLY=
+  url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$UNDEAD_REPO/releases/latest" 2>/dev/null)
+  [[ ${url##*/} =~ '^v[0-9]+\.[0-9]+\.[0-9]+$' ]] && { REPLY=${url##*/}; return 0 }
+
+  hdr=$(mktemp) || { REPLY='could not create a temporary file'; return 1 }
+  body=$(curl -sS -D $hdr -o - -w '\n%{http_code}' $api 2>/dev/null)
+  code=${${(f)body}[-1]}
+  body=${(F)${(@f)body}[1,-2]}
+  if [[ -z $code || $code == 000 ]]; then
+    zf_rm -f $hdr
+    REPLY='could not reach GitHub to look for a new version'
+    return 1
+  fi
+  if [[ $code == (403|429) && $body == *[Rr]ate\ [Ll]imit* ]]; then
+    reset=$(sed -n 's/^[Xx]-[Rr]ate[Ll]imit-[Rr]eset:[[:space:]]*\([0-9][0-9]*\).*/\1/p' $hdr | tail -n 1)
+    zf_rm -f $hdr
+    if [[ -n $reset ]] && (( reset > EPOCHSECONDS )); then
+      mins=$(( (reset - EPOCHSECONDS + 59) / 60 ))
+      REPLY="GitHub is rate-limiting this network: try again in $mins minutes"
+    else
+      REPLY='GitHub is rate-limiting this network: try again later'
+    fi
+    return 1
+  fi
+  zf_rm -f $hdr
+  [[ $code == 200 ]] || { REPLY="GitHub answered HTTP $code"; return 1 }
+  REPLY=$(plutil -extract tag_name raw -o - - <<<$body 2>/dev/null)
+  [[ $REPLY =~ '^v[0-9]+\.[0-9]+\.[0-9]+$' ]] || { REPLY='GitHub returned no release tag'; return 1 }
+}
+
 cmd_upgrade() {
-  local check=0 arg tag latest root tmp json new
+  local check=0 arg tag latest root tmp new
   for arg in "$@"; do
     case $arg in
       --check) check=1 ;;
@@ -301,11 +336,8 @@ cmd_upgrade() {
     print -r -- "undead $UNDEAD_VERSION was installed with Homebrew: run ${c_bold}brew upgrade undead${c_off}"
     return 0
   fi
-  json=$(curl -fsSL https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest 2>/dev/null) ||
-    die "could not reach GitHub to look for a new version"
-  tag=$(plutil -extract tag_name raw -o - - <<<$json 2>/dev/null)
-  [[ -n $tag ]] || die "GitHub returned no release tag"
-  latest=${tag#v}
+  upgrade_latest_tag || die $REPLY
+  tag=$REPLY latest=${REPLY#v}
 
   autoload -Uz is-at-least
   if (( check )); then

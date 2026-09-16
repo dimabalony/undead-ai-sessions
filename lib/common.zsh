@@ -2,7 +2,7 @@
 # UNDEAD_STATE_DIR / UNDEAD_CONFIG_DIR only exist for tests: Codex runs hooks with a scrubbed environment,
 # so real installs must use the defaults.
 
-typeset -g UNDEAD_VERSION=0.3.1
+typeset -g UNDEAD_VERSION=0.3.2
 typeset -g UNDEAD_REPO=https://github.com/dimabalony/undead-ai-sessions
 typeset -g UNDEAD_STATE=${UNDEAD_STATE_DIR:-$HOME/.local/state/undead}
 typeset -g UNDEAD_CONFIG=${UNDEAD_CONFIG_DIR:-$HOME/.config/undead}

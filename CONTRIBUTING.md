@@ -48,6 +48,11 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   keeps its rollout files open, so `lsof` finds them and the header's `source` picks out the tab's conversation: the
   one that says `cli`, with the rest belonging to its subagents. Never the newest or the one whose `cwd` matches -- a
   months-old rollout resumed today is still the tab's session. Zero or several are reported rather than guessed.
+- **The latest release is found through a redirect, not the API.** GitHub's unauthenticated API allows 60 calls an
+  hour per network address, which everyone behind one office NAT shares; an upgrade failed in the field because of
+  it. `https://github.com/<repo>/releases/latest` redirects to the tag page, so the tag is the last path segment of
+  the effective URL, and the tarball comes from `codeload.github.com` -- neither is API-limited. The API is only the
+  fallback, and when it does answer 403 the message names the rate limit and the wait instead of blaming the network.
 - **`undead upgrade` installs releases, not `main`**, so an upgrade lands on a version someone tagged. It replaces
   `bin/` and `lib/` under the install directory and nothing else: the hook paths don't change, so there is no
   re-install and Codex doesn't ask to trust the hook again. Homebrew installs are sent to `brew upgrade`.
@@ -95,7 +100,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 75 s, 223 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 80 s, 240 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead
