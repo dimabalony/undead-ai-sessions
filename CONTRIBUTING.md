@@ -81,6 +81,19 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   readable from a process inside the tab. iTerm2's `unique id` of a session is the GUID `ITERM_SESSION_ID` carries.
 - Agent-team teammates cannot be restored: Claude Code's own docs list "no session resumption with in-process
   teammates", and a team's config is deleted when the lead exits.
+- Claude Code writes its transcript, `~/.claude/projects/<cwd, non-alphanumerics as ->/<session id>.jsonl`, on the
+  first message, not when the session starts (measured: a session recorded by the hook and quit while empty had no
+  file). `claude --resume <id>` then prints "No conversation found with session ID: <id>" and exits 1. undead globs
+  `projects/*/<id>.jsonl` rather than rebuild the folder name.
+- Claude Code with `CLAUDE_CODE_CHILD_SESSION` in its environment prints "Transcript saving is off — inherited
+  CLAUDE_CODE_CHILD_SESSION marker" and writes no transcript (measured). Claude sets it, with `CLAUDECODE`, in every
+  process it starts. A terminal app that inherited it gives it to every tab's shell: observed once with Terminal.app,
+  the inheritance path not reproduced.
+- Codex 0.154 `codex resume <id>` for an id with no rollout prints "ERROR: No saved session found with ID <id>. Run
+  `codex resume` without an ID to choose from existing sessions." and exits 1, without creating a session (measured
+  with a made-up id).
+- `ps -o comm=` shows an interactive Claude Code as `claude`, but an agent-team member it started as its
+  `~/.local/share/claude/versions/<version>` binary; the native Codex binary shows as `codex` under a `node` launcher.
 
 ## Layout
 
@@ -100,7 +113,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 80 s, 240 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 90 s, 278 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead

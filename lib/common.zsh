@@ -2,7 +2,7 @@
 # UNDEAD_STATE_DIR / UNDEAD_CONFIG_DIR only exist for tests: Codex runs hooks with a scrubbed environment,
 # so real installs must use the defaults.
 
-typeset -g UNDEAD_VERSION=0.3.2
+typeset -g UNDEAD_VERSION=0.3.3
 typeset -g UNDEAD_REPO=https://github.com/dimabalony/undead-ai-sessions
 typeset -g UNDEAD_STATE=${UNDEAD_STATE_DIR:-$HOME/.local/state/undead}
 typeset -g UNDEAD_CONFIG=${UNDEAD_CONFIG_DIR:-$HOME/.config/undead}
@@ -134,21 +134,56 @@ undead_replay_flags() {
   return 0
 }
 
-# The command that resumes a record: tool, session id, then replayed flags.
+# Whether the agent saved a session, which is what `claude --resume` / `codex resume` need. Claude Code writes
+# <config dir>/projects/<cwd, non-alphanumerics as dashes>/<id>.jsonl on the first message, not at start, and nothing
+# at all while CLAUDE_CODE_CHILD_SESSION is set; the id is a UUID, so any project folder will do. Codex keeps
+# $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl.
+undead_transcript_exists() {
+  emulate -L zsh
+  local -a found
+  [[ $2 =~ '^[0-9a-fA-F-]+$' ]] || return 1
+  case $1 in
+    claude) found=(${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/*/$2.jsonl(N)) ;;
+    codex) found=(${CODEX_HOME:-$HOME/.codex}/sessions/*/*/*/rollout-*-$2.jsonl(N)) ;;
+    *) return 1 ;;
+  esac
+  (( $#found ))
+}
+
+# The command that resumes a record: tool, session id, then replayed flags. A session the agent never saved can't be
+# resumed, so it gets the command that starts the agent fresh with the same flags, and undead_resume_fresh is set.
 undead_resume_command() {
   emulate -L zsh
+  typeset -g undead_resume_fresh=
   local -a rec=("${(@f)$(<$1)}")
-  [[ $rec[2] =~ '^[0-9a-fA-F-]+$' ]] || return 1
+  [[ $rec[2] =~ '^[0-9a-fA-F-]+$' && $rec[1] == (claude|codex) ]] || return 1
   local -a args=("${(@)rec[4,-1]}")
   if (( $#args )); then
     undead_replay_flags $rec[1] "$rec[1] ${(j: :)${(@q-)args}}" || args=()
     args=("${(@)reply}")
   fi
-  case $rec[1] in
-    claude) reply=(claude --resume $rec[2] "${(@)args}") ;;
-    codex) reply=(codex resume $rec[2] -c check_for_update_on_startup=false "${(@)args}") ;;
-    *) return 1 ;;
+  undead_transcript_exists $rec[1] $rec[2] || undead_resume_fresh=1
+  case $rec[1]:$undead_resume_fresh in
+    claude:) reply=(claude --resume $rec[2] "${(@)args}") ;;
+    claude:1) reply=(claude "${(@)args}") ;;
+    codex:) reply=(codex resume $rec[2] -c check_for_update_on_startup=false "${(@)args}") ;;
+    codex:1) reply=(codex -c check_for_update_on_startup=false "${(@)args}") ;;
   esac
+}
+
+# Whether a process (default: this shell) runs under Claude Code or Codex, looking at most 8 parents up. Claude Code
+# shows as claude, or as its .../claude/versions/<version> binary when it started the process itself (agent team
+# members); Codex as codex, under a node launcher.
+undead_under_agent() {
+  emulate -L zsh
+  local pid=${1:-$$} ppid comm i
+  for i in {0..8}; do
+    read -r ppid comm <<<"$(ps -o ppid=,comm= -p $pid 2>/dev/null)"
+    [[ ${comm:t} == (claude|codex)* || $comm == */claude/versions/* ]] && return 0
+    (( ppid > 1 )) || return 1
+    pid=$ppid
+  done
+  return 1
 }
 
 # A live shell registered for the given terminal id, other than the caller.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- A restored tab whose session was never saved (quit before its first message, or run with Claude Code's transcript
+  saving off) starts the agent fresh in its folder with its flags and says why, instead of stopping at "No
+  conversation found"; `undead reopen` does the same
+- A terminal that inherited Claude Code's session marker (`CLAUDE_CODE_CHILD_SESSION`), which turns off transcript
+  saving for every Claude session started in it, is called out in each new tab and by `undead doctor`, with the fix
+
 ## 0.3.2
 
 - `undead upgrade` and `install.sh` find the latest release without the GitHub API, whose unauthenticated limit of 60

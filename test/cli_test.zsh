@@ -50,16 +50,39 @@ print -rl -- iterm2-DOC "$(ps -o lstart= -p $$)" > $STATE/shells/$$
 TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:DOC zsh -c "$U doctor; :" > $SANDBOX/out 2>&1
 check "finds the registered tab shell above an intermediate process, as under an agent" has $SANDBOX/out "shell is registered"
 rm -f $STATE/shells/$$
+check "says nothing about Claude Code's session marker when there is none" eval '! has $SANDBOX/out "session marker"'
+# doctor with only launchd above it, as in a shell a terminal app started, even when an agent runs this suite.
+# Usage: detached_doctor [env or command prefix...]
+detached_doctor() {
+  rm -f $SANDBOX/doctor.done
+  detached zsh -fc "env TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:DOC ${(j: :)${(@q)@}} $U doctor > $SANDBOX/out 2>&1
+    touch $SANDBOX/doctor.done"
+  wait_until 30 test -f $SANDBOX/doctor.done
+}
+detached_doctor CLAUDECODE=1
+check "fails a terminal that inherited Claude Code's session marker" has $SANDBOX/out "✗ This terminal inherited Claude Code's"
+check "  ...with the fix" has $SANDBOX/out "Launch the terminal from the Dock or Finder, or run: unset CLAUDE_CODE_CHILD_SESSION"
+check "  ...and says checks failed" has $SANDBOX/out "Some checks failed"
+detached_doctor CLAUDE_CODE_CHILD_SESSION=1 CLAUDECODE=1 $SANDBOX/agents/claude -fc '"$@"; :' claude
+check "doesn't when doctor runs under an agent, where the marker belongs" eval '! has $SANDBOX/out "session marker"'
+check "  ...though it ran" has $SANDBOX/out "Saved sessions"
 
 print -r -- "list, forget, reopen, donate"
 print -rl -- claude 11111111-2222-3333-4444-555555555555 $HOME/project > $STATE/tabs/iterm2-L1
 print -rl -- codex 019e3f51-cebd-77d2-b342-c1f5f1bd1f60 $HOME/other > $STATE/tabs/iterm2-L2
+save_transcript claude 11111111-2222-3333-4444-555555555555
 $U list > $SANDBOX/out
 check "list shows saved sessions" has $SANDBOX/out 019e3f51-cebd-77d2-b342-c1f5f1bd1f60
 check "  ...with a closed tab" has $SANDBOX/out closed
 TERM_PROGRAM=WarpTerminal $U reopen 11111111-2222-3333-4444-555555555555 > $SANDBOX/out
 check "reopen in an unsupported terminal prints the command to run" has $SANDBOX/out "cd -- $HOME/project && claude --resume 11111111-2222-3333-4444-555555555555"
 check "  ...and keeps the session" test -f $STATE/tabs/iterm2-L1
+print -rl -- claude 33333333-2222-3333-4444-555555555555 $HOME/project --model opus > $STATE/tabs/iterm2-L3
+TERM_PROGRAM=WarpTerminal $U reopen 33333333-2222-3333-4444-555555555555 > $SANDBOX/out
+check "reopen for a session that was never saved prints the command that starts claude fresh" \
+  has $SANDBOX/out "cd -- $HOME/project && claude --model opus"
+check "  ...and says why" has $SANDBOX/out "session 33333333-2222-3333-4444-555555555555 was never saved, so it can't be resumed"
+check "  ...not a resume" eval '! has $SANDBOX/out --resume'
 $U forget 11111111-2222-3333-4444-555555555555 > /dev/null
 check "forget by id drops that session" missing $STATE/tabs/iterm2-L1
 check "  ...and only that one" test -f $STATE/tabs/iterm2-L2

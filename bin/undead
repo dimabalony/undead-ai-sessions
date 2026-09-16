@@ -434,6 +434,12 @@ cmd_doctor() {
   else
     warn "This terminal (${TERM_PROGRAM:-unknown}) isn't supported. Supported: iTerm2, Terminal.app"
   fi
+  # Under an agent the marker is expected, so this can only be told from a shell the terminal started
+  if [[ -n $CLAUDE_CODE_CHILD_SESSION$CLAUDECODE ]] && ! undead_under_agent; then
+    fail "This terminal inherited Claude Code's session marker: Claude sessions started here don't save transcripts" \
+      "and can't be resumed"
+    dim "Launch the terminal from the Dock or Finder, or run: unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE"
+  fi
 
   print -r -- "${c_bold}Window restoration${c_off}"
   if [[ $(defaults read -g NSQuitAlwaysKeepsWindows 2>/dev/null) == 1 ]]; then
@@ -564,7 +570,7 @@ select_records() {
 }
 
 cmd_reopen() {
-  local want=${1:---all} file line
+  local want=${1:---all} file line opened manual
   local -a selected rec
   select_records $want closed
   if (( ! $#selected )); then
@@ -575,11 +581,19 @@ cmd_reopen() {
     rec=("${(@f)$(<$file)}")
     undead_resume_command $file || { warn "skipping ${file:t}: unreadable record"; continue }
     line="cd -- ${(q-)rec[3]} && ${(j: :)${(@q-)reply}}"
+    if [[ -n $undead_resume_fresh ]]; then
+      opened="Started $rec[1] fresh in ${rec[3]/#$HOME/~}: session $rec[2] was never saved, so it can't be resumed"
+      manual="$rec[1] session $rec[2] was never saved, so it can't be resumed. To start $rec[1] fresh in its folder,"
+      manual+=" run this in a new tab:"
+    else
+      opened="Reopened $rec[1] session $rec[2]"
+      manual="Couldn't open a tab automatically. Run this in a new tab:"
+    fi
     if open_tab_with $line; then
       zf_rm -f $file
-      ok "Reopened $rec[1] session $rec[2]"
+      ok $opened
     else
-      warn "Couldn't open a tab automatically. Run this in a new tab:"
+      warn $manual
       print -r -- "    $line"
     fi
   done

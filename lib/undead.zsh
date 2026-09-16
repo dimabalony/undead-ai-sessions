@@ -10,7 +10,7 @@ undead_terminal_id || return 0
 
 typeset -g _undead_id=$REPLY
 typeset -g _undead_tab=$UNDEAD_STATE/tabs/$REPLY
-typeset -g _undead_pending= _undead_scheduled= _undead_active=
+typeset -g _undead_pending= _undead_scheduled= _undead_active= _undead_marker=
 typeset -g UNDEAD_FORGET_DELAY=${UNDEAD_FORGET_DELAY:-10}
 
 () {
@@ -27,11 +27,21 @@ typeset -g UNDEAD_FORGET_DELAY=${UNDEAD_FORGET_DELAY:-10}
   print -rl -- $_undead_id "$(ps -o lstart= -p $$)" > $UNDEAD_STATE/shells/$$
   # Another live shell for this tab (e.g. a nested zsh) already owns the session
   [[ -r $_undead_tab ]] && ! undead_live_shell_for $_undead_id && _undead_pending=1
+  # Claude Code marks every process it starts, and a Claude session that inherits the mark saves no transcript. Under
+  # an agent that is expected; in a tab shell it means the terminal app itself was launched from a Claude session.
+  [[ -n $CLAUDE_CODE_CHILD_SESSION$CLAUDECODE ]] && ! undead_under_agent && _undead_marker=1
 }
 
 _undead_precmd() {
   local st=$?
   emulate -L zsh
+  if [[ -n $_undead_marker ]]; then
+    _undead_marker=
+    print -r -- $'\e[33m'"undead: this terminal inherited Claude Code's session marker; Claude sessions started here" \
+      "don't save transcripts and can't be resumed. Launch the terminal from the Dock or Finder, or run:" \
+      "unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE"$'\e[0m'
+    undead_log "zsh[$$] tab $_undead_id inherited Claude Code's session marker: its Claude sessions save no transcript"
+  fi
   if [[ -n $_undead_pending ]]; then
     _undead_pending=
     _undead_resume || return 0
@@ -73,9 +83,20 @@ _undead_resume() {
   fi
   cmd=("${(@)reply}")
   _undead_active=1
-  _undead_support_message
-  print -r -- $'\e[36m'"↻ undead: resuming $rec[1] session $rec[2] in ${(D)PWD}"$'\e[0m'
-  undead_log "zsh[$$] resuming tab $_undead_id: ${(j: :)${(@q-)cmd}}"
+  if [[ -n $undead_resume_fresh ]]; then
+    # Nothing to resume: the agent's own error would leave a bare prompt, so the tab gets a fresh agent instead
+    if [[ $rec[1] == claude ]]; then
+      print -r -- $'\e[33m'"undead: claude session $rec[2] was never saved by Claude (no message yet, or its" \
+        "transcript saving was off): starting claude fresh in ${(D)PWD}"$'\e[0m'
+    else
+      print -r -- $'\e[33m'"undead: codex session $rec[2] has no saved rollout: starting codex fresh in ${(D)PWD}"$'\e[0m'
+    fi
+    undead_log "zsh[$$] restarting tab $_undead_id: ${(j: :)${(@q-)cmd}} (no transcript for $rec[2])"
+  else
+    _undead_support_message
+    print -r -- $'\e[36m'"↻ undead: resuming $rec[1] session $rec[2] in ${(D)PWD}"$'\e[0m'
+    undead_log "zsh[$$] resuming tab $_undead_id: ${(j: :)${(@q-)cmd}}"
+  fi
   print -rs -- "${(j: :)${(@q-)cmd}}"
   # The hook reads the flags to replay from here, exactly as for a typed command
   print -r -- "${(j: :)${(@q-)cmd}}" > $UNDEAD_STATE/shells/$$.cmd

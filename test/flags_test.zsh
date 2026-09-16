@@ -36,6 +36,8 @@ check "an id inherited by another app is refused" eval '! term_id vscode w0t0p0:
 check "tmux is refused" eval 'TMUX=/tmp/x-1/default term_id iTerm.app w0t0p0:A-GUID ""; (( $? != 0 ))'
 
 print -r -- "Resume command"
+save_transcript claude 11111111-2222-3333-4444-555555555555
+save_transcript codex 019e3f51-cebd-77d2-b342-c1f5f1bd1f60
 print -rl -- claude 11111111-2222-3333-4444-555555555555 /tmp --model opus > $SANDBOX/rec
 undead_resume_command $SANDBOX/rec
 check "claude resumes with its flags" test "${(j:|:)reply}" = "claude|--resume|11111111-2222-3333-4444-555555555555|--model|opus"
@@ -47,5 +49,27 @@ undead_resume_command $SANDBOX/rec
 check "flags in a record are checked again before resuming" test "${(j:|:)reply}" = "claude|--resume|11111111-2222-3333-4444-555555555555|--model|opus"
 print -rl -- claude '$(touch /tmp/pwned)' /tmp > $SANDBOX/rec
 check "a session id that isn't an id is refused" test "$(undead_resume_command $SANDBOX/rec; print $?)" = 1
+print -rl -- claude 33333333-2222-3333-4444-555555555555 /tmp --model opus > $SANDBOX/rec
+undead_resume_command $SANDBOX/rec
+check "a claude session with no transcript starts claude fresh with its flags" test "${(j:|:)reply}" = "claude|--model|opus"
+check "  ...and says so" test "$undead_resume_fresh" = 1
+print -rl -- codex 019e3f51-0000-77d2-b342-c1f5f1bd1f60 /tmp --yolo > $SANDBOX/rec
+undead_resume_command $SANDBOX/rec
+check "a codex session with no rollout starts codex fresh" test "${(j:|:)reply}" = "codex|-c|check_for_update_on_startup=false|--yolo"
+print -rl -- codex 019e3f51-cebd-77d2-b342-c1f5f1bd1f60 /tmp > $SANDBOX/rec
+undead_resume_command $SANDBOX/rec
+check "a resumable record clears the fresh mark" test -z "$undead_resume_fresh"
+
+print -r -- "Transcripts"
+check "a claude transcript is found in any project folder" undead_transcript_exists claude 11111111-2222-3333-4444-555555555555
+check "a codex rollout is found in any day folder" undead_transcript_exists codex 019e3f51-cebd-77d2-b342-c1f5f1bd1f60
+check "a missing one isn't" eval '! undead_transcript_exists claude 33333333-2222-3333-4444-555555555555'
+check "CODEX_HOME moves the rollouts" eval '! CODEX_HOME=$SANDBOX/codex-home undead_transcript_exists codex 019e3f51-cebd-77d2-b342-c1f5f1bd1f60'
+mkdir -p $SANDBOX/codex-home/sessions/2026/01/02
+: > $SANDBOX/codex-home/sessions/2026/01/02/rollout-2026-01-02T03-04-05-019e3f51-1111-77d2-b342-c1f5f1bd1f60.jsonl
+check "  ...and they are found there" eval 'CODEX_HOME=$SANDBOX/codex-home undead_transcript_exists codex 019e3f51-1111-77d2-b342-c1f5f1bd1f60'
+check "CLAUDE_CONFIG_DIR moves the transcripts" \
+  eval '! CLAUDE_CONFIG_DIR=$SANDBOX/claude-config undead_transcript_exists claude 11111111-2222-3333-4444-555555555555'
+check "a session id that is a pattern matches nothing" eval '! undead_transcript_exists claude "*"'
 
 finish

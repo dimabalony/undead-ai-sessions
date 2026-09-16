@@ -4,9 +4,12 @@ source $ROOT/lib/common.zsh
 W=$SANDBOX/work
 CLAUDE_ID=11111111-2222-3333-4444-555555555555
 CODEX_ID=019e3f51-cebd-77d2-b342-c1f5f1bd1f60
+save_transcript claude $CLAUDE_ID
+save_transcript codex $CODEX_ID
 calls() { [[ -f $SANDBOX/calls ]] && REPLY=$(<$SANDBOX/calls) || REPLY= }
 called() { calls; [[ $REPLY == *$1* ]] || { print -r -- "    calls: ${REPLY:-none}"; return 1 } }
 not_called() { calls; [[ -z $REPLY ]] }
+never_called_with() { calls; [[ $REPLY != *$1* ]] || { print -r -- "    calls: $REPLY"; return 1 } }
 reset_calls() { rm -f $SANDBOX/calls }
 out_has() { [[ "$(<$SANDBOX/out)" == *$1* ]] || { print -r -- "    output: $(<$SANDBOX/out | tr -d '\r' | tail -5)"; return 1 } }
 out_lacks() { [[ "$(<$SANDBOX/out)" != *$1* ]] }
@@ -56,6 +59,68 @@ sleep 1
 pty_shell $SANDBOX/out "sleep 1" $(iterm R6)
 check "a second shell in the same tab doesn't resume again" not_called
 wait
+
+print -r -- "Never saved"
+UNSAVED_ID=33333333-2222-3333-4444-555555555555
+UNSAVED_CODEX=019e3f51-0000-77d2-b342-c1f5f1bd1f60
+reset_calls
+print -rl -- claude $UNSAVED_ID $W --model opus > $STATE/tabs/iterm2-N1
+pty_shell $SANDBOX/out "sleep 1" $(iterm N1)
+check "a claude session with no transcript starts claude fresh with its flags" called "claude --model opus | $W"
+check "  ...not with --resume" never_called_with --resume
+check "  ...and says why" \
+  out_has "undead: claude session $UNSAVED_ID was never saved by Claude (no message yet, or its transcript saving was off)"
+check "  ...without claiming to resume it" out_lacks "resuming claude session"
+check "  ...and logs it" logged "restarting tab iterm2-N1: claude --model opus (no transcript for $UNSAVED_ID)"
+
+reset_calls
+print -rl -- claude $CLAUDE_ID $W --model opus > $STATE/tabs/iterm2-N2
+pty_shell $SANDBOX/out "sleep 1" $(iterm N2)
+check "a claude session whose transcript exists still resumes" called "claude --resume $CLAUDE_ID --model opus | $W"
+
+reset_calls
+print -rl -- codex $UNSAVED_CODEX $W --yolo > $STATE/tabs/iterm2-N3
+pty_shell $SANDBOX/out "sleep 1" $(iterm N3)
+check "a codex session with no rollout starts codex fresh with its flags" called "codex -c check_for_update_on_startup=false --yolo | $W"
+check "  ...not with codex resume" never_called_with "codex resume"
+check "  ...and says why" out_has "undead: codex session $UNSAVED_CODEX has no saved rollout: starting codex fresh in"
+check "  ...and logs it" \
+  logged "restarting tab iterm2-N3: codex -c check_for_update_on_startup=false --yolo (no transcript for $UNSAVED_CODEX)"
+
+reset_calls
+print -rl -- codex $CODEX_ID $W --yolo > $STATE/tabs/iterm2-N4
+pty_shell $SANDBOX/out "sleep 1" $(iterm N4)
+check "a codex session whose rollout exists still resumes" called "codex resume $CODEX_ID -c check_for_update_on_startup=false --yolo | $W"
+
+print -r -- "Inherited session marker"
+MARKER="undead: this terminal inherited Claude Code's session marker; Claude sessions started here don't save"
+MARKER+=" transcripts and can't be resumed. Launch the terminal from the Dock or Finder, or run:"
+MARKER+=" unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE"
+# A tab shell with only launchd above it, as under a terminal app, even when an agent runs this suite. It runs a few
+# commands, so there are several prompts. Usage: detached_shell NAME [env or command prefix...]
+detached_shell() {
+  local name=$1; shift
+  print -rl -- "print 'print RAN-\$((6*7))'" "sleep 0.5" "print 'print again'" "sleep 0.5" \
+    "print 'touch $SANDBOX/$name.done'" "sleep 0.5" "print exit" "sleep 0.5" > $SANDBOX/$name.keys
+  detached zsh -fc "zsh -f $SANDBOX/$name.keys |
+    env ZDOTDIR=$SANDBOX/zdot ${(j: :)${(@q)@}} script -q /dev/null zsh --no-globalrcs -i > $SANDBOX/out 2>&1"
+  wait_until 15 test -f $SANDBOX/$name.done
+  sleep 0.5
+}
+marker_count() { REPLY=$(grep -c "inherited Claude Code's session marker" $SANDBOX/out) }
+
+detached_shell M1 $(iterm M1) CLAUDE_CODE_CHILD_SESSION=1
+check "a tab whose terminal inherited Claude Code's session marker says so" out_has $MARKER
+check "  ...once, not at every prompt" eval 'marker_count; (( REPLY == 1 ))'
+check "  ...and logs it" logged "tab iterm2-M1 inherited Claude Code's session marker"
+
+detached_shell M2 $(iterm M2) CLAUDE_CODE_CHILD_SESSION=1 CLAUDECODE=1 $SANDBOX/agents/claude -fc '"$@"; :' claude
+check "a tab shell under an agent, where the marker belongs, stays quiet" out_lacks "session marker"
+check "  ...though it ran" out_has RAN-42
+
+detached_shell M3 $(iterm M3)
+check "a tab shell without the marker stays quiet" out_lacks "session marker"
+check "  ...though it ran" out_has RAN-42
 
 print -r -- "Forgetting"
 reset_calls

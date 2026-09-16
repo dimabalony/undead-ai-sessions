@@ -150,6 +150,24 @@ Some sessions are ignored on purpose, because they aren't the session that belon
 `undead log` says which one applied. An agent that was already running when you installed undead is picked up by
 `undead adopt`, which `undead install` runs for you — Claude Code and Codex, in iTerm2 and Terminal.app alike.
 
+### My tab came back with "No conversation found"
+
+Claude Code never saved that session, so there was nothing to resume. That happens two ways:
+
+- **No message was sent yet.** Claude Code saves a conversation when you send its first message, but undead records
+  the session as soon as it starts. Quit the terminal while a new session is still empty, and it is gone.
+- **Transcript saving was off.** Claude Code marks every process it starts with `CLAUDE_CODE_CHILD_SESSION`, and a
+  Claude session that inherits the marker says *Transcript saving is off* and saves nothing. A terminal app launched
+  from inside a Claude session can pass the marker on to every tab (seen once, with Terminal.app).
+
+Since 0.3.3, undead checks that the conversation was saved before resuming it. When it wasn't, the tab starts
+`claude` (or `codex`) fresh, in the same folder with the same flags, and a yellow line says why; `undead reopen` does
+the same.
+
+When the terminal itself carries the marker, each new tab says so, and `undead doctor` run in the tab (not from
+Claude) fails. Quit the terminal and launch it from the Dock or Finder, or run
+`unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE` in the tab before starting `claude`.
+
 ### Claude asks to trust my home folder every time
 
 That's Claude Code: it never saves trust for the home folder. Start agents from a project folder instead.

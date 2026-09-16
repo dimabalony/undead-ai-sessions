@@ -5,7 +5,9 @@ ROOT=${${(%):-%x}:A:h:h}
 SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/undead-test.XXXXXX")
 SANDBOX=${SANDBOX:A}
 
-unset TMUX ITERM_SESSION_ID TERM_SESSION_ID TERM_PROGRAM UNDEAD_DISABLE UNDEAD_NO_DONATE ZDOTDIR CODEX_HOME CLAUDECODE
+# The suite often runs inside Claude Code, whose session markers would otherwise reach every shell under test
+unset TMUX ITERM_SESSION_ID TERM_SESSION_ID TERM_PROGRAM UNDEAD_DISABLE UNDEAD_NO_DONATE ZDOTDIR CODEX_HOME CLAUDECODE \
+  CLAUDE_CODE_CHILD_SESSION CLAUDE_CONFIG_DIR
 export HOME=$SANDBOX/home
 export UNDEAD_STATE_DIR=$HOME/.local/state/undead UNDEAD_CONFIG_DIR=$HOME/.config/undead UNDEAD_FORGET_DELAY=1
 STATE=$UNDEAD_STATE_DIR
@@ -34,6 +36,19 @@ missing() { [[ ! -e $1 ]] }
 logged() { [[ -f $STATE/log && "$(<$STATE/log)" == *$1* ]] }
 line() { [[ -f $1 ]] && REPLY=${${(f)"$(<$1)"}[$2]} }
 record_is() { [[ -f $STATE/tabs/$1 && "$(<$STATE/tabs/$1)" == "$2" ]] }
+# A saved conversation, so a record resumes instead of starting the agent fresh. Usage: save_transcript claude|codex ID
+save_transcript() {
+  local dir
+  case $1 in
+    claude) dir=$HOME/.claude/projects/-work; mkdir -p $dir && : > $dir/$2.jsonl ;;
+    codex) dir=$HOME/.codex/sessions/2026/09/16; mkdir -p $dir && : > $dir/rollout-2026-09-16T20-05-16-$2.jsonl ;;
+  esac
+}
+# Runs a command with launchd as its parent, so an agent running the suite (Claude Code's Bash tool) isn't above it.
+# Returns at once. Usage: detached COMMAND...
+detached() {
+  ( zsh -fc 'until (( $(ps -o ppid= -p $$) == 1 )); do sleep 0.05; done; exec "$@"' detached "$@" & )
+}
 wait_until() {
   local timeout=$1 i; shift
   for (( i = 0; i < timeout * 10; i++ )); do
