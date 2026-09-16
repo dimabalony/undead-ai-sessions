@@ -1,4 +1,5 @@
 ---
+name: undead
 description: Run undead, the tool that brings Claude Code and Codex sessions back in restored terminal tabs, or set it up if it isn't installed
 argument-hint: '[doctor|list|reopen|forget|log|upgrade|install|uninstall]'
 disable-model-invocation: true

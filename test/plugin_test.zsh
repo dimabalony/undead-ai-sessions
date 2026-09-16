@@ -25,8 +25,8 @@ check "it lists the undead plugin" json_is $M plugins.0.name undead
 check "...from the plugin/ subdirectory" json_is $M plugins.0.source ./plugin
 
 print -r -- "slash command"
-CMD=$ROOT/plugin/commands/undead.md
-check "plugin/commands/undead.md exists" test -f $CMD
+CMD=$ROOT/plugin/skills/undead/SKILL.md
+check "plugin/skills/undead/SKILL.md exists" test -f $CMD
 line $CMD 1
 check "it opens with frontmatter" test "$REPLY" = ---
 check "the frontmatter has a description" eval 'grep -q "^description: ." $CMD'
