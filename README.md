@@ -6,11 +6,9 @@
 
 </div>
 
-<!-- demo GIF goes here: https://github.com/dimabalony/undead-ai-sessions/issues/1 -->
-```text
-Session Contents Restored on 15 Sep 2026 at 18:32
-↻ undead: resuming claude session 51b570c1-11cd-4e1d-9666-04b230a03674 in ~/Developer/my-app
-```
+<p align="center">
+  <img src="docs/demo/demo.gif" width="1000" alt="Terminal.app with a Claude Code conversation. Quit and relaunch: the tab comes back empty. With undead, quit and relaunch: the conversation is back.">
+</p>
 
 You run Claude Code and Codex in a bunch of terminal tabs. Then you quit the terminal, macOS installs an update, or the
 laptop reboots. The tabs come back empty, and you're left guessing which `claude --resume` or `codex resume` belonged

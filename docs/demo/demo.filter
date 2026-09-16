@@ -1,0 +1,10 @@
+[0:v]trim=0:6.0,setpts=PTS-STARTPTS,crop=2064:1096:800:610[b1];
+[0:v]trim=16.0:19.5,setpts=PTS-STARTPTS,crop=2064:1096:800:610,split[b2a][b2b];
+[b2b]crop=420:28:274:1056,boxblur=8:3:4:3[bl];
+[b2a][bl]overlay=274:1056[b2];
+[1:v]trim=5.8:8.7,setpts=PTS-STARTPTS,crop=2064:1096:792:580[a1];
+[1:v]trim=17.0:19.9,setpts=PTS-STARTPTS,crop=2064:1096:792:580,tpad=stop_mode=clone:stop_duration=1.8[a2];
+color=black:size=2064x1096:duration=0.7:rate=12[gap];
+[b1][b2][gap][a1][a2]concat=n=5:v=1:a=0,fps=12,scale=1000:-1:flags=lanczos,split[p][q];
+[p]palettegen=stats_mode=diff[pal];
+[q][pal]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle

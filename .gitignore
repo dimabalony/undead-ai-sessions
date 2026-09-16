@@ -1,2 +1,3 @@
 docs/demo/*
 !docs/demo/demo.gif
+!docs/demo/demo.filter
