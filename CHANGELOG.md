@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- The support message stays on screen for three seconds before the agent starts; a full-screen agent UI used to cover
+  it within a second. It now prints after the `resuming` line. `UNDEAD_SUPPORT_PAUSE=0` skips the pause
+
 ## 0.3.3
 
 - A restored tab whose session was never saved (quit before its first message, or run with Claude Code's transcript

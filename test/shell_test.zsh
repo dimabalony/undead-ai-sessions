@@ -157,16 +157,17 @@ print -r -- "Support message"
 reset_calls
 print -rl -- 2 1 > $STATE/restores
 print -rl -- claude $CLAUDE_ID $W > $STATE/tabs/iterm2-D1
-pty_shell $SANDBOX/out "sleep 1" $(iterm D1)
+pty_shell $SANDBOX/out "sleep 1" $(iterm D1) UNDEAD_SUPPORT_PAUSE=0
 check "the 3rd restore shows the support message" out_has "brought your AI sessions back 3 times"
+check "  ...after the resume line, so the pause can't hide it" eval '[[ "$(<$SANDBOX/out)" == *"resuming claude"*"brought your AI sessions back"* ]]'
 print -rl -- claude $CLAUDE_ID $W > $STATE/tabs/iterm2-D2
-pty_shell $SANDBOX/out "sleep 1" $(iterm D2)
+pty_shell $SANDBOX/out "sleep 1" $(iterm D2) UNDEAD_SUPPORT_PAUSE=0
 check "other tabs of the same relaunch don't count again" test "${${(f)"$(<$STATE/restores)"}[1]}" = 3
 check "  ...or show it again" out_lacks "brought your AI sessions back"
 print -rl -- 9 1 > $STATE/restores
 mkdir -p $UNDEAD_CONFIG_DIR && print donate=off > $UNDEAD_CONFIG_DIR/config
 print -rl -- claude $CLAUDE_ID $W > $STATE/tabs/iterm2-D3
-pty_shell $SANDBOX/out "sleep 1" $(iterm D3)
+pty_shell $SANDBOX/out "sleep 1" $(iterm D3) UNDEAD_SUPPORT_PAUSE=0
 check "donate off hides it" out_lacks "brought your AI sessions back"
 
 pty_bg $SANDBOX/out "print 'sleep 20 &'; sleep 0.3; print 'FAKE_RECORD=$CLAUDE_ID FAKE_TAB=iterm2-F6 claude'; sleep 6" $(iterm F6)
