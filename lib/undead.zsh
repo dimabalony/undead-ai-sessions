@@ -100,7 +100,7 @@ _undead_support_message() {
     (( count++ ))
     print -rl -- $count $EPOCHSECONDS > $file
     if (( count == 3 || count == 10 || count == 25 || count == 50 || (count > 50 && count % 50 == 0) )); then
-      print -r -- $'\e[35m'"♥ undead has brought your AI sessions back $count times. If it saves you time, support it: $UNDEAD_REPO#support"$'\e[0m'
+      print -r -- $'\e[35m'"♥ undead has brought your AI sessions back $count times. If it saves you time, star it or support it: $UNDEAD_REPO"$'\e[0m'
       print -r -- $'\e[2m'"  (hide this message: undead donate off)"$'\e[0m'
     fi
   fi

@@ -244,7 +244,7 @@ cmd_doctor() {
 
   print -r -- ''
   (( problems )) && print -r -- "${c_fail}Some checks failed${c_off}, see above." || print -r -- "${c_ok}All good.${c_off}"
-  print -r -- "${c_dim}undead is free. If it saves you time: $UNDEAD_REPO#support${c_off}"
+  print -r -- "${c_dim}undead is free. If it saves you time, star it or support it: $UNDEAD_REPO${c_off}"
   return $problems
 }
 
@@ -399,7 +399,7 @@ cmd_donate() {
       ;;
     '')
       undead_config donate && [[ $REPLY == off ]] && print -r -- "Support message: off" || print -r -- "Support message: on"
-      print -r -- "Support undead: $UNDEAD_REPO#support"
+      print -r -- "Star or support undead: $UNDEAD_REPO"
       ;;
     *) die "usage: undead donate [on|off]" ;;
   esac
