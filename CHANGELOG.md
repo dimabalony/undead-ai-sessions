@@ -6,7 +6,8 @@
   as well as iTerm2 and needs no automation permission
 - Codex sessions are adopted too, identified by the rollout a running Codex holds open
 - `undead upgrade [--check]` updates undead itself to the latest release in place, leaving the hooks alone;
-  `install.sh` installs the latest release instead of `main`
+  `install.sh` installs the latest release instead of `main`. Installs older than 0.3.0 have no `upgrade` command:
+  re-run the install command once
 - The Claude Code plugin says when it ships a newer undead than the one installed
 
 ## 0.2.0

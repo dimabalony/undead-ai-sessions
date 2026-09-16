@@ -73,6 +73,7 @@ The plugin is a thin wrapper: it adds the `/undead` command, while the tool itse
 
 To update: `claude plugin update undead@undead-ai-sessions` (or the `/plugin` manager). When the plugin then ships a
 newer undead than the one you have, your next Claude Code session says so, and `undead upgrade` updates the tool.
+Installs older than 0.3.0 have no `upgrade` command: re-run the install command once.
 
 ## Usage
 

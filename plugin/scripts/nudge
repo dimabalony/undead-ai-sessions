@@ -19,7 +19,7 @@ if [[ -x $exe ]]; then
   want=$(plutil -extract version raw -o - - < ${CLAUDE_PLUGIN_ROOT:-.}/.claude-plugin/plugin.json 2>/dev/null)
   [[ -n $have && -n $want ]] || exit 0
   is-at-least $want $have && exit 0
-  message="undead $want is available (you have $have): run \`undead upgrade\`."
+  message="undead $want is available (you have $have): run \`undead upgrade\` (or re-run the installer if that command is missing)."
   stamp=$state/upgrade-$want
 else
   message="undead is not installed: run /undead to bring Claude Code and Codex sessions back in terminal tabs your terminal restores."
