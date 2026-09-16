@@ -36,6 +36,8 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - **No daemon, no polling, no AppleScript typing** (except `undead reopen`, which you run yourself).
 - **No jq or python dependency**: hooks parse JSON with `plutil`, the CLI edits JSON through
   `osascript -l JavaScript` (`lib/json-hooks.js`), both part of macOS.
+- **The plugin lives in `plugin/`, not at the repo root.** Claude Code appends a plugin's `bin/` to the Bash tool's
+  PATH, so a root-level plugin would shadow `undead` for users who haven't installed it.
 
 ## Verified facts (don't re-litigate without re-testing)
 
@@ -61,10 +63,7 @@ lib/common.zsh     shared helpers: tab id, flag allowlist, resume command, log
 lib/json-hooks.js  edits settings.json / hooks.json (macOS JavaScript, follows symlinks)
 test/              5 suites, sandboxed HOME, fake agents, real pseudo-terminals
 install.sh         copies into ~/.local/share/undead and runs `undead install`
-.claude-plugin/    plugin.json and marketplace.json: the repo is its own Claude Code plugin (`source: "./"`)
-commands/undead.md /undead: runs a subcommand of the installed CLI, or offers to install it
-hooks/hooks.json   plugin SessionStart hook -> scripts/nudge
-scripts/nudge      says once a day that the CLI isn't installed; never records a session
+plugin/            Claude Code plugin: manifest, /undead command, nudge hook; the marketplace at the root points at it
 ```
 
 State: `~/.local/state/undead/{tabs,shells,log,restores,backups}`. A record is 3+ lines: tool, session id, cwd, then
@@ -72,7 +71,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 45 s, 148 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 45 s, 149 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead
@@ -88,9 +87,13 @@ end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for te
    the new `url` and the `shasum -a 256` of
    `https://github.com/dimabalony/undead-ai-sessions/archive/refs/tags/vX.Y.Z.tar.gz`.
 
-## Ideas, not built
+## Roadmap
 
-- bash and fish support; tmux (would need tmux-resurrect-style pane ids); Ghostty/WezTerm/Kitty and VS Code/Cursor
-  terminals (no restored tab id that we know of; VS Code revives tabs but sets no id that survives it).
+The planned work lives in [the issues](https://github.com/dimabalony/undead-ai-sessions/issues): a demo GIF at the top
+of the README (#1), `undead upgrade` so `curl | sh` installs update themselves (#2), VS Code and Cursor integrated
+terminals (#3), bash and fish (#4), tmux panes (#5), and Ghostty, WezTerm, Kitty and Warp (#6).
+
+Two ideas without an issue yet:
+
 - Reopening a session whose tab never came back, automatically at login (today: `undead reopen`).
 - Recording the agent's own `--name`, so `undead list` can show session names.

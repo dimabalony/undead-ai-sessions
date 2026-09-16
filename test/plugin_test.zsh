@@ -3,8 +3,9 @@ source $ROOT/lib/common.zsh
 
 # The Claude Code plugin is glue around the CLI: manifests, one slash command, and a nudge hook.
 unset XDG_STATE_HOME
-P=$ROOT/.claude-plugin
-NUDGE=$ROOT/scripts/nudge
+M=$ROOT/.claude-plugin/marketplace.json
+P=$ROOT/plugin/.claude-plugin
+NUDGE=$ROOT/plugin/scripts/nudge
 STAMP=$HOME/.local/state/undead-plugin/nudged
 
 # plutil -lint only reads property lists on macOS 26, so JSON is checked the way lib/hook parses it
@@ -14,18 +15,18 @@ json_is() { json $1 $2; [[ $REPLY == $3 ]] || { print -r -- "    got: $REPLY"; r
 
 print -r -- "manifests"
 check "plugin.json is valid JSON" parses $P/plugin.json
-check "marketplace.json is valid JSON" parses $P/marketplace.json
-check "hooks.json is valid JSON" parses $ROOT/hooks/hooks.json
+check "marketplace.json is valid JSON" parses $M
+check "hooks.json is valid JSON" parses $ROOT/plugin/hooks/hooks.json
 check "the plugin is called undead" json_is $P/plugin.json name undead
 check "its version is UNDEAD_VERSION" json_is $P/plugin.json version $UNDEAD_VERSION
 check "it names an author and a license" eval 'json $P/plugin.json author.name; [[ -n $REPLY ]] && json_is $P/plugin.json license MIT'
-check "the marketplace is called undead-ai-sessions" json_is $P/marketplace.json name undead-ai-sessions
-check "it lists the undead plugin" json_is $P/marketplace.json plugins.0.name undead
-check "...from this repository" json_is $P/marketplace.json plugins.0.source ./
+check "the marketplace is called undead-ai-sessions" json_is $M name undead-ai-sessions
+check "it lists the undead plugin" json_is $M plugins.0.name undead
+check "...from the plugin/ subdirectory" json_is $M plugins.0.source ./plugin
 
 print -r -- "slash command"
-CMD=$ROOT/commands/undead.md
-check "commands/undead.md exists" test -f $CMD
+CMD=$ROOT/plugin/commands/undead.md
+check "plugin/commands/undead.md exists" test -f $CMD
 line $CMD 1
 check "it opens with frontmatter" test "$REPLY" = ---
 check "the frontmatter has a description" eval 'grep -q "^description: ." $CMD'
@@ -34,13 +35,13 @@ check "...and limits allowed-tools" eval 'grep -q "^allowed-tools: ." $CMD'
 check "it points at the real installer" has $CMD install.sh
 
 print -r -- "nudge hook"
-check "scripts/nudge is executable" test -x $NUDGE
-json $ROOT/hooks/hooks.json hooks.SessionStart.0.hooks.0.command
+check "plugin/scripts/nudge is executable" test -x $NUDGE
+json $ROOT/plugin/hooks/hooks.json hooks.SessionStart.0.hooks.0.command
 check "the SessionStart hook runs it from the plugin root" eval '[[ $REPLY == *\${CLAUDE_PLUGIN_ROOT}/scripts/nudge* ]]'
-check "with a 5 second timeout" json_is $ROOT/hooks/hooks.json hooks.SessionStart.0.hooks.0.timeout 5
-check "it is not a second recording hook" eval '[[ "$(<$ROOT/hooks/hooks.json)" != *SessionEnd* ]]'
+check "with a 5 second timeout" json_is $ROOT/plugin/hooks/hooks.json hooks.SessionStart.0.hooks.0.timeout 5
+check "it is not a second recording hook" eval '[[ "$(<$ROOT/plugin/hooks/hooks.json)" != *SessionEnd* ]]'
 
-# A stand-in undead somewhere on PATH, plus the plugin's own copy, which doesn't count as installed
+# A stand-in undead somewhere on PATH
 mkdir -p $SANDBOX/installed
 print -l -- '#!/bin/sh' 'exit 0' > $SANDBOX/installed/undead
 chmod +x $SANDBOX/installed/undead
@@ -52,8 +53,10 @@ check "says nothing when undead is on PATH" test -z "$out"
 check "...and exits 0" test $rc -eq 0
 check "...and leaves no stamp behind" missing $STAMP
 
-nudge $ROOT/bin:/usr/bin:/bin
-check "the copy inside the plugin doesn't count as installed" test -n "$out"
+check "the plugin ships no bin/, so nothing shadows undead on Claude's PATH" test ! -e $ROOT/plugin/bin
+
+nudge /usr/bin:/bin
+check "it speaks up when undead is missing" test -n "$out"
 check "...and the message sends the user to /undead" eval '[[ $out == *"systemMessage"*"/undead"* ]]'
 check "...on one line" one_line "$out"
 check "...as JSON Claude Code can parse" eval 'print -r -- "$out" | plutil -extract systemMessage raw -o - - >/dev/null'

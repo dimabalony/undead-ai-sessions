@@ -10,14 +10,13 @@ Subcommand: `$ARGUMENTS` (use `doctor` when empty).
 undead is a separate zsh tool; this plugin is only a wrapper for it. The resume itself happens in the shell when a
 terminal restores a tab, so it can't be done from here.
 
-Find the installed CLI with `command -v undead`, then `~/.local/bin/undead`. A copy under this plugin's own directory
-doesn't count: undead works only after its installer has set up the shell and the hooks.
+Find the installed CLI with `command -v undead`, then `~/.local/bin/undead`.
 
 **Installed:** run `undead $ARGUMENTS`, then explain the result in a few lines — for `doctor`, which check failed and
 the exact setting that fixes it; for `list`, which saved sessions still have an open tab; for `log`, what the last
 `recorded` / `resuming` / `forgot` / `skip` decisions mean.
 
-**Not installed:** don't run the plugin's copy. Say what the installer touches:
+**Not installed:** say what the installer touches:
 
 - `~/.zshrc`: one marked block
 - `~/.claude/settings.json`: a SessionStart and a SessionEnd hook

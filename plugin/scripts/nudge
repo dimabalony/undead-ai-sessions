@@ -9,10 +9,7 @@ zmodload -F zsh/stat b:zstat
 # Claude Code sends the event JSON on stdin; this hook doesn't need it, but an unread pipe would break the writer.
 cat >/dev/null 2>&1
 
-# undead only works once install.sh has set up the shell and the hooks, so the copy shipped inside this
-# plugin (the repo is its own plugin, bin/ and all) doesn't count as installed.
-local found=${commands[undead]} root=${${CLAUDE_PLUGIN_ROOT:-/dev/null}:A}
-[[ -n $found && ${found:A} != $root/* ]] && exit 0
+(( $+commands[undead] )) && exit 0
 [[ -x $HOME/.local/bin/undead ]] && exit 0
 
 local stamp=${XDG_STATE_HOME:-$HOME/.local/state}/undead-plugin/nudged
