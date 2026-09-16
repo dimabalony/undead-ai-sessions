@@ -1,3 +1,4 @@
 docs/demo/*
 !docs/demo/demo.gif
 !docs/demo/demo.filter
+!docs/demo/labels.py
