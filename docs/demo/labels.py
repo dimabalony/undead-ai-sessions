@@ -28,3 +28,7 @@ for text, f, color in lines:
     d.text(((W - f.getlength(text)) / 2, y), text, font=f, fill=color); y += 82 if f.size == 64 else 52
 card.save(os.path.join(out, "card.png"))
 print("labels written")
+relaunch = Image.new("RGB", (W, H), (0, 0, 0)); d = ImageDraw.Draw(relaunch)
+f = font(30); text = "Terminal quits  ›  you open it again"
+d.text(((W - f.getlength(text)) / 2, H / 2 - 20), text, font=f, fill=(150, 150, 150))
+relaunch.save(os.path.join(out, "relaunch.png")); print("relaunch written")
