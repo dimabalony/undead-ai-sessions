@@ -38,6 +38,19 @@ Then:
 2. **Codex only:** the next time you start `codex` it says *Hooks need review*. Choose **Trust all and continue**.
 3. Run `undead doctor` to check that everything is set up.
 
+### Install as a Claude Code plugin
+
+Inside Claude Code:
+
+```text
+/plugin marketplace add dimabalony/undead-ai-sessions
+/plugin install undead@undead-ai-sessions
+/undead
+```
+
+The plugin is a thin wrapper: it adds the `/undead` command, while the tool itself is still installed by `install.sh`
+above. Later, `claude plugin marketplace update undead-ai-sessions` picks up new versions.
+
 ## How it works
 
 1. iTerm2 and Terminal.app give every tab (and every iTerm2 split pane) an id, and keep that id when they restore
@@ -109,7 +122,8 @@ undead donate [on|off]                                   show or hide the occasi
   Start agents from a project folder instead.
 - **Agent teams:** teammates can't be restored. Claude Code itself doesn't restore teammates when a lead session is
   resumed; ask the lead to spawn them again.
-- **Not supported yet:** bash, fish, tmux, Ghostty, Warp, WezTerm, Kitty.
+- **Not supported yet:** VS Code and Cursor terminals (no tab id survives a restart), bash, fish, tmux, Ghostty,
+  Warp, WezTerm, Kitty.
 
 ## Troubleshooting
 
@@ -131,7 +145,8 @@ Everything stays on your Mac. undead touches:
 
 ## Support
 
-undead is free and MIT licensed. If it saves you time, a donation helps keep it alive:
+undead is free and MIT licensed. If it saves you time, a star on GitHub helps others find it, and a donation helps
+keep it alive:
 
 - **USDT (Tron / TRC20):** `TL8Ph6ydv5pwHdBJXTQDakDZLN1MwYoqiQ`
 

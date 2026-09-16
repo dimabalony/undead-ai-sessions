@@ -1,0 +1,17 @@
+{
+  "name": "undead-ai-sessions",
+  "owner": {
+    "name": "Dmitry Bolonikov",
+    "url": "https://github.com/dimabalony"
+  },
+  "metadata": {
+    "description": "The undead plugin: a /undead command for the undead CLI."
+  },
+  "plugins": [
+    {
+      "name": "undead",
+      "source": "./",
+      "description": "Thin wrapper for the undead CLI: your Claude Code and Codex sessions come back in restored terminal tabs."
+    }
+  ]
+}

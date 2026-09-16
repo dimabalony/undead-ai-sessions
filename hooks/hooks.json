@@ -1,0 +1,16 @@
+{
+  "description": "Says once a day that the undead CLI isn't installed yet. It never records sessions.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/nudge\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "undead",
+  "version": "0.1.0",
+  "description": "Thin wrapper for the undead CLI: your Claude Code and Codex sessions come back in restored terminal tabs.",
+  "author": {
+    "name": "Dmitry Bolonikov",
+    "url": "https://github.com/dimabalony"
+  },
+  "homepage": "https://github.com/dimabalony/undead-ai-sessions",
+  "repository": "https://github.com/dimabalony/undead-ai-sessions",
+  "license": "MIT",
+  "keywords": [
+    "session",
+    "resume",
+    "iterm2",
+    "terminal",
+    "codex",
+    "macos"
+  ]
+}

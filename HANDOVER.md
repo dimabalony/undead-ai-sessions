@@ -64,9 +64,13 @@ lib/undead.zsh     shell integration (sourced from ~/.zshrc)
 lib/hook           SessionStart/SessionEnd hook for both agents
 lib/common.zsh     shared helpers: tab id, flag allowlist, resume command, log
 lib/json-hooks.js  edits settings.json / hooks.json (macOS JavaScript, follows symlinks)
-test/              4 suites, sandboxed HOME, fake agents, real pseudo-terminals
+test/              5 suites, sandboxed HOME, fake agents, real pseudo-terminals
 install.sh         copies into ~/.local/share/undead and runs `undead install`
 Formula/undead.rb  Homebrew formula template for a personal tap
+.claude-plugin/    plugin.json and marketplace.json: the repo is its own Claude Code plugin (`source: "./"`)
+commands/undead.md /undead: runs a subcommand of the installed CLI, or offers to install it
+hooks/hooks.json   plugin SessionStart hook -> scripts/nudge
+scripts/nudge      says once a day that the CLI isn't installed; never records a session
 ```
 
 State: `~/.local/state/undead/{tabs,shells,log,restores,backups}`. A record is 3+ lines: tool, session id, cwd, then
@@ -74,7 +78,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 45 s, 109 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 45 s, 148 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead
@@ -92,16 +96,18 @@ end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for te
 
 ## Left to do
 
-1. `sudo xcodebuild -license accept` on the personal Mac — it blocks `git` (and `xcodebuild`), so the repo has no
-   commits yet.
-2. Fill in the wallet addresses in README.md → Support.
-3. Publish as `dimabalony/undead-ai-sessions`, then install on the work MacBook and run `undead doctor`.
-4. Optional: Homebrew tap (`Formula/undead.rb` has the steps), a demo GIF in the README.
+Published as `dimabalony/undead-ai-sessions` on 2026-09-16 (wallet filled in, installed on both Macs).
+
+1. A demo GIF at the top of the README: a real screen recording of iTerm2 relaunching, before/after.
+2. Homebrew tap `dimabalony/homebrew-tap` (`Formula/undead.rb` has the steps); needs the `v0.1.0` tarball sha256.
+3. `undead upgrade`, so `curl | sh` installs can update themselves.
+4. The plugin install path from GitHub (`/plugin marketplace add dimabalony/undead-ai-sessions`) has been verified only
+   from a local path; re-check it after each release.
 
 ## Ideas, not built
 
-- bash and fish support; tmux (would need tmux-resurrect-style pane ids); Ghostty/WezTerm/Kitty (no restored tab id
-  that we know of).
+- bash and fish support; tmux (would need tmux-resurrect-style pane ids); Ghostty/WezTerm/Kitty and VS Code/Cursor
+  terminals (no restored tab id that we know of; VS Code revives tabs but sets no id that survives it).
 - Reopening a session whose tab never came back, automatically at login (today: `undead reopen`).
 - Recording the agent's own `--name`, so `undead list` can show session names.
 

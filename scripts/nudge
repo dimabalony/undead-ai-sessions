@@ -1,0 +1,24 @@
+#!/bin/zsh -f
+# SessionStart hook for the Claude Code plugin: says once a day that the undead CLI isn't installed yet.
+# It is not a recording hook: lib/hook is installed by `undead install`, and a second copy here would double-record.
+# Never fails a session: every path exits 0.
+emulate -L zsh
+zmodload zsh/datetime
+zmodload -F zsh/stat b:zstat
+
+# Claude Code sends the event JSON on stdin; this hook doesn't need it, but an unread pipe would break the writer.
+cat >/dev/null 2>&1
+
+# undead only works once install.sh has set up the shell and the hooks, so the copy shipped inside this
+# plugin (the repo is its own plugin, bin/ and all) doesn't count as installed.
+local found=${commands[undead]} root=${${CLAUDE_PLUGIN_ROOT:-/dev/null}:A}
+[[ -n $found && ${found:A} != $root/* ]] && exit 0
+[[ -x $HOME/.local/bin/undead ]] && exit 0
+
+local stamp=${XDG_STATE_HOME:-$HOME/.local/state}/undead-plugin/nudged
+mkdir -p ${stamp:h} 2>/dev/null || exit 0
+[[ -f $stamp ]] && (( EPOCHSECONDS - $(zstat +mtime $stamp 2>/dev/null || print 0) < 86400 )) && exit 0
+: > $stamp 2>/dev/null || exit 0
+
+print -r -- '{"systemMessage":"undead is not installed: run /undead to bring Claude Code and Codex sessions back in terminal tabs your terminal restores."}'
+exit 0
