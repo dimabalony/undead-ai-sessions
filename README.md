@@ -21,6 +21,13 @@ started it with.
 macOS with zsh (the default shell). Requires iTerm2 or Terminal.app.
 
 ```sh
+brew install dimabalony/tap/undead
+undead install
+```
+
+Or from a checkout:
+
+```sh
 git clone https://github.com/dimabalony/undead-ai-sessions.git
 cd undead-ai-sessions
 ./install.sh
@@ -156,8 +163,10 @@ Bug reports and pull requests are welcome too.
 
 ```sh
 test/run          # all tests, in a sandbox that never touches your real config
-test/run shell    # one suite: cli, flags, hook or shell
+test/run shell    # one suite: cli, flags, hook, plugin or shell
 ```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has how it works inside, why it is built this way, and how to cut a release.
 
 ## License
 
