@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- `undead adopt` now finds a tab through the agent's own environment instead of AppleScript, so it covers Terminal.app
+  as well as iTerm2 and needs no automation permission
+- Codex sessions are adopted too, identified by the rollout a running Codex holds open
+- `undead upgrade [--check]` updates undead itself to the latest release in place, leaving the hooks alone;
+  `install.sh` installs the latest release instead of `main`
+- The Claude Code plugin says when it ships a newer undead than the one installed
+
 ## 0.2.0
 
 - `undead adopt` records the Claude Code sessions that are already running, so installing undead no longer means

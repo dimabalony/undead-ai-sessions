@@ -31,6 +31,7 @@ Usage: undead <command>
                            Add the hooks and the ~/.zshrc line (safe to run again)
   uninstall [--purge]      Remove them; --purge also deletes saved sessions and settings
   adopt [--dry-run]        Protect the sessions already running, without restarting them
+  upgrade [--check]        Update undead itself to the latest release
   doctor                   Check that restores will work on this Mac
   list                     Saved sessions, and whether their tab is still open
   reopen [N|ID|--all]      Resume a session whose tab is gone in a new tab
@@ -140,13 +141,16 @@ cmd_install() {
 }
 
 # Records the agents that are already running, so installing undead doesn't mean restarting every tab.
-# Two sources: Claude Code's own ~/.claude/sessions/<pid>.json (session id, cwd, and a procStart that makes a reused
-# pid detectable) and the terminal's tty -> tab id map. Codex stores neither a pid nor a tty, and Terminal.app has no
-# per-tab id, so those are reported rather than guessed.
+# The tab comes from the agent's own inherited environment (`ps -E`), which is readable for a same-user process, so
+# this needs no AppleScript and works in iTerm2 and Terminal.app alike. Claude Code's session id and cwd come from
+# ~/.claude/sessions/<pid>.json; Codex writes neither, but a running Codex holds its rollout files open, so lsof
+# plus the rollout header's source finds the one conversation that belongs to the tab.
 typeset -g ADOPTED=0 STUCK=0 DRY=0
 
 adopt_log() { (( DRY )) || undead_log "adopt[$$] $*" }
 adopt_json() { plutil -extract $2 raw -o - - < $1 2>/dev/null }
+# A rollout is JSONL, so only its first line is a JSON object: read that, never the whole file
+adopt_header_json() { plutil -extract $2 raw -o - - <<<$1 2>/dev/null }
 # Claude Code writes procStart in UTC and `ps -o lstart=` prints local time, with a space-padded day in both, so the
 # pid-reuse guard compares instants rather than strings. Usage: adopt_epoch "<date text>" [UTC]
 adopt_epoch() {
@@ -160,13 +164,29 @@ adopt_epoch() {
   [[ -n $REPLY ]]
 }
 # Belongs to a tab, but can't be adopted: saying so is the point, since restarting that agent fixes it
-adopt_stuck() { adopt_log "skip: $1"; warn "$2"; (( STUCK++ )) }
+adopt_stuck() { adopt_log "skip: $1"; warn "$2"; [[ -n $3 ]] && dim "$3"; (( STUCK++ )) }
+CODEX_HINT='run `codex resume` in that tab and pick the session (not --last: it resumes the same session in every tab)'
+
+# The rollout of the conversation the tab is having: a running Codex keeps it open, along with one file per internal
+# subagent. Only the header's source tells them apart; timestamps and cwd cannot, since a months-old rollout resumed
+# today is still the tab's session. Sets REPLY to the rollout path.
+adopt_codex_rollout() {
+  local f
+  local -a open=()
+  for f in ${(f)"$(lsof -p $1 -Fn 2>/dev/null)"}; do
+    f=${f#n}
+    [[ $f == $CODEX_DIR/sessions/*/rollout-*.jsonl && -r $f ]] || continue
+    undead_rollout_source "$(head -n 1 $f 2>/dev/null)" || continue
+    [[ $REPLY == cli ]] && open+=($f)
+  done
+  (( $#open == 1 )) || { REPLY=$#open; return 1 }
+  REPLY=$open[1]
+}
 
 adopt_run() {
-  local line pid ppid tty tool parent shell id file sid cwd kind started tmp i
+  local line pid ppid tty tool parent shell id file header sid cwd kind started tmp i hint why
   local -a f args
   ADOPTED=0 STUCK=0
-  undead_tty_tabs
   (( DRY )) || zf_mkdir -p -m 700 $UNDEAD_STATE $UNDEAD_STATE/tabs $UNDEAD_STATE/shells
   # -x without -a: this user's processes only, so another account's agents on this Mac are never touched
   for line in ${(f)"$(ps -xo pid=,ppid=,tty=,comm= 2>/dev/null)"}; do
@@ -185,35 +205,52 @@ adopt_run() {
     done
     [[ ${parent:t} == *zsh ]] || { adopt_log "skip: $tool[$pid] runs under ${${parent:t}:-?}, not a tab shell"; continue }
     kill -0 $pid 2>/dev/null || { adopt_log "skip: $tool[$pid] is gone"; continue }
-    id=$undead_tty_tab[$tty]
-    [[ -n $id ]] || { adopt_stuck "no tab id for $tty ($tool[$pid])" "$tool on $tty: this terminal has no tab ids"; continue }
-    [[ $tool == claude ]] || { adopt_stuck "codex[$pid] saves no pid or tty" "codex on $tty: Codex saves no pid, so it can't be adopted"; continue }
 
-    file=$HOME/.claude/sessions/$pid.json
-    [[ -r $file ]] || { adopt_stuck "claude[$pid] has no session file" "claude on $tty: no session file to read it from"; continue }
-    started=
-    adopt_epoch "$(adopt_json $file procStart)" UTC && started=$REPLY
-    adopt_epoch "$(ps -o lstart= -p $pid)" || REPLY=
-    [[ -n $started && $REPLY == $started ]] ||
-      { adopt_stuck "claude[$pid] session file is for an older process" "claude on $tty: its session file belongs to an older process"; continue }
-    kind=$(adopt_json $file kind)
-    [[ $kind == interactive ]] || { adopt_log "skip: claude[$pid] is a $kind session"; continue }
-    sid=$(adopt_json $file sessionId)
-    cwd=$(adopt_json $file cwd)
+    undead_env_of $pid ||
+      { adopt_stuck "can't read the environment of $tool[$pid]" "$tool on $tty: can't read its environment"; continue }
+    # tmux and terminals without a restorable tab id are skipped here for the same reason the shell skips them
+    undead_tab_id ||
+      { adopt_log "skip: $tool[$pid] runs in ${undead_env[TERM_PROGRAM]:-an unsupported terminal}${undead_env[TMUX]:+ inside tmux}"; continue }
+    id=$REPLY
+
+    if [[ $tool == codex ]]; then
+      hint=$CODEX_HINT
+      if ! adopt_codex_rollout $pid; then
+        (( REPLY )) && why="several open sessions" || why="no open session"
+        adopt_stuck "codex[$pid] has $REPLY open cli rollouts" "codex on $tty: $why" $hint
+        continue
+      fi
+      header=$(head -n 1 $REPLY 2>/dev/null)
+      sid=$(adopt_header_json "$header" payload.id)
+      cwd=$(adopt_header_json "$header" payload.cwd)
+    else
+      hint=
+      file=$HOME/.claude/sessions/$pid.json
+      [[ -r $file ]] || { adopt_stuck "claude[$pid] has no session file" "claude on $tty: no session file to read it from"; continue }
+      started=
+      adopt_epoch "$(adopt_json $file procStart)" UTC && started=$REPLY
+      adopt_epoch "$(ps -o lstart= -p $pid)" || REPLY=
+      [[ -n $started && $REPLY == $started ]] ||
+        { adopt_stuck "claude[$pid] session file is for an older process" "claude on $tty: its session file belongs to an older process"; continue }
+      kind=$(adopt_json $file kind)
+      [[ $kind == interactive ]] || { adopt_log "skip: claude[$pid] is a $kind session"; continue }
+      sid=$(adopt_json $file sessionId)
+      cwd=$(adopt_json $file cwd)
+    fi
     [[ $sid =~ '^[0-9a-fA-F-]+$' && -n $cwd ]] ||
-      { adopt_stuck "claude[$pid] has no usable session id or cwd" "claude on $tty: its session file is incomplete"; continue }
+      { adopt_stuck "$tool[$pid] has no usable session id or cwd" "$tool on $tty: its session record is incomplete" $hint; continue }
 
-    undead_replay_flags claude "$(ps -o args= -p $pid 2>/dev/null)" || reply=()
+    undead_replay_flags $tool "$(ps -o args= -p $pid 2>/dev/null)" || reply=()
     args=("${(@)reply}")
     if (( DRY )); then
-      print -r -- "  would adopt claude $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
+      print -r -- "  would adopt $tool $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
     else
       tmp=$UNDEAD_STATE/tabs/.tmp.$$
-      print -rl -- claude $sid $cwd "${(@)args}" > $tmp && zf_mv -f $tmp $UNDEAD_STATE/tabs/$id || continue
+      print -rl -- $tool $sid $cwd "${(@)args}" > $tmp && zf_mv -f $tmp $UNDEAD_STATE/tabs/$id || continue
       # So a later /exit in that tab is forgotten, and a new agent started there is recorded
       print -rl -- $id "$(ps -o lstart= -p $shell)" > $UNDEAD_STATE/shells/$shell
       adopt_log "adopted $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
-      ok "claude in ${cwd/#$HOME/~}"
+      ok "$tool in ${cwd/#$HOME/~}"
     fi
     (( ADOPTED++ ))
   done
@@ -248,6 +285,57 @@ cmd_adopt() {
   (( ADOPTED || STUCK )) || { dim "no agent is running in a terminal tab"; return 0 }
   print -r -- ''
   adopt_next '' ''
+}
+
+# Replaces bin/ and lib/ under the install directory with the latest release. The hook paths don't change, so there
+# is nothing to re-install and Codex doesn't ask to trust the hook again. Homebrew installs are left to brew.
+cmd_upgrade() {
+  local check=0 arg tag latest root tmp json new
+  for arg in "$@"; do
+    case $arg in
+      --check) check=1 ;;
+      *) die "unknown option: $arg" ;;
+    esac
+  done
+  if [[ $LIB == (*/Cellar/undead/*|*/opt/undead)/libexec/lib ]]; then
+    print -r -- "undead $UNDEAD_VERSION was installed with Homebrew: run ${c_bold}brew upgrade undead${c_off}"
+    return 0
+  fi
+  json=$(curl -fsSL https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest 2>/dev/null) ||
+    die "could not reach GitHub to look for a new version"
+  tag=$(plutil -extract tag_name raw -o - - <<<$json 2>/dev/null)
+  [[ -n $tag ]] || die "GitHub returned no release tag"
+  latest=${tag#v}
+
+  autoload -Uz is-at-least
+  if (( check )); then
+    print -r -- "installed: $UNDEAD_VERSION"
+    print -r -- "latest:    $latest"
+    is-at-least $latest $UNDEAD_VERSION && print -r -- "Up to date." || print -r -- "Run: undead upgrade"
+    return 0
+  fi
+  is-at-least $latest $UNDEAD_VERSION && { print -r -- "undead $UNDEAD_VERSION is up to date."; return 0 }
+
+  root=${LIB:h}
+  [[ -w $root ]] || die "cannot write to ${root/#$HOME/~}"
+  tmp=$(mktemp -d) || die "could not create a temporary directory"
+  trap "/bin/rm -rf ${(q)tmp}" EXIT
+  curl -fsSL "$UNDEAD_REPO/archive/refs/tags/$tag.tar.gz" | tar -xz -C $tmp --strip-components 1 ||
+    die "could not download undead $latest"
+  [[ -f $tmp/lib/common.zsh && -f $tmp/bin/undead ]] || die "the downloaded release is incomplete"
+  new=$(sed -n 's/^typeset -g UNDEAD_VERSION=//p' $tmp/lib/common.zsh | head -n 1)
+  [[ -n $new ]] || die "the downloaded release has no version"
+
+  # Staged, then swapped with mv, so an interrupted upgrade can never leave the install without a bin/ or lib/.
+  # Replacing this script underneath itself is safe: the running shell keeps its open file.
+  zf_rm -rf $root/bin.new $root/lib.new $root/bin.old $root/lib.old
+  cp -R $tmp/bin $root/bin.new && cp -R $tmp/lib $root/lib.new || die "could not stage undead $new"
+  chmod +x $root/bin.new/undead $root/lib.new/hook
+  zf_mv -f $root/bin $root/bin.old && zf_mv -f $root/lib $root/lib.old || die "could not move the old files aside"
+  zf_mv -f $root/bin.new $root/bin && zf_mv -f $root/lib.new $root/lib || die "could not move the new files in"
+  zf_rm -rf $root/bin.old $root/lib.old
+  ok "undead $UNDEAD_VERSION -> $new"
+  print -r -- "Check it with: undead doctor"
 }
 
 cmd_uninstall() {
@@ -526,6 +614,7 @@ case $1 in
   install) shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   adopt) shift; cmd_adopt "$@" ;;
+  upgrade) shift; cmd_upgrade "$@" ;;
   doctor) cmd_doctor ;;
   list|ls) cmd_list ;;
   reopen) shift; cmd_reopen "$@" ;;

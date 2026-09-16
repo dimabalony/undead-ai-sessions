@@ -2,7 +2,7 @@
 # UNDEAD_STATE_DIR / UNDEAD_CONFIG_DIR only exist for tests: Codex runs hooks with a scrubbed environment,
 # so real installs must use the defaults.
 
-typeset -g UNDEAD_VERSION=0.2.0
+typeset -g UNDEAD_VERSION=0.3.0
 typeset -g UNDEAD_REPO=https://github.com/dimabalony/undead-ai-sessions
 typeset -g UNDEAD_STATE=${UNDEAD_STATE_DIR:-$HOME/.local/state/undead}
 typeset -g UNDEAD_CONFIG=${UNDEAD_CONFIG_DIR:-$HOME/.config/undead}
@@ -18,18 +18,62 @@ undead_log() {
   print -r -- "$(strftime '%F %T' $EPOCHSECONDS) $*" >> $log
 }
 
-# Id of the terminal tab or split pane this shell runs in, stable across the terminal's window restoration.
-# TERM_PROGRAM guards against ids inherited by other apps started from a tab (e.g. VS Code's terminal).
-undead_terminal_id() {
+# Id of the terminal tab or split pane the environment in undead_env belongs to, stable across the terminal's window
+# restoration. TERM_PROGRAM guards against ids inherited by other apps started from a tab (e.g. VS Code's terminal).
+# One copy of the rules: the shell fills undead_env from its own environment, `undead adopt` from another process's.
+typeset -gA undead_env
+
+undead_tab_id() {
   emulate -L zsh
   REPLY=
-  [[ -z $TMUX ]] || return 1
-  case $TERM_PROGRAM in
-    iTerm.app) [[ $ITERM_SESSION_ID == *:?* ]] && REPLY=iterm2-${ITERM_SESSION_ID#*:} ;;
-    Apple_Terminal) [[ -n $TERM_SESSION_ID ]] && REPLY=terminal-${TERM_SESSION_ID##*:} ;;
+  [[ -z $undead_env[TMUX] ]] || return 1
+  case $undead_env[TERM_PROGRAM] in
+    iTerm.app) [[ $undead_env[ITERM_SESSION_ID] == *:?* ]] && REPLY=iterm2-${undead_env[ITERM_SESSION_ID]#*:} ;;
+    Apple_Terminal) [[ -n $undead_env[TERM_SESSION_ID] ]] && REPLY=terminal-${undead_env[TERM_SESSION_ID]##*:} ;;
     *) return 1 ;;
   esac
   [[ $REPLY =~ '^[A-Za-z0-9._-]+$' ]]
+}
+
+# This shell's own tab
+undead_terminal_id() {
+  emulate -L zsh
+  undead_env=(TERM_PROGRAM "$TERM_PROGRAM" ITERM_SESSION_ID "$ITERM_SESSION_ID"
+              TERM_SESSION_ID "$TERM_SESSION_ID" TMUX "$TMUX")
+  undead_tab_id
+}
+
+# The tab of a running agent, read from the environment it inherited from its shell. `ps -E` prints a same-user
+# process's environment after its command line, so the last assignment of each name wins. The tab's login shell
+# itself is off limits (it is started by /usr/bin/login), but the agent under it is not.
+undead_env_of() {
+  emulate -L zsh
+  local w out
+  undead_env=()
+  out=$(ps -Eww -o command= -p $1 2>/dev/null) || return 1
+  for w in ${=out}; do
+    case $w in
+      (TERM_PROGRAM=*|ITERM_SESSION_ID=*|TERM_SESSION_ID=*|TMUX=*) undead_env[${w%%=*}]=${w#*=} ;;
+    esac
+  done
+  (( ${#undead_env} ))
+}
+
+# The `source` of a Codex rollout header: "cli" for a session started in a terminal, otherwise the kind of internal
+# session it is. Fails while Codex is still writing the first line.
+undead_rollout_source() {
+  emulate -L zsh
+  local type
+  REPLY=
+  [[ -n $1 ]] || return 1
+  plutil -type type - <<<$1 >/dev/null 2>&1 || return 1
+  type=$(plutil -type payload.source - <<<$1 2>/dev/null) || type=missing
+  if [[ $type == string ]]; then
+    REPLY=$(plutil -extract payload.source raw -o - - <<<$1 2>/dev/null)
+  else
+    REPLY=$type
+  fi
+  [[ -n $REPLY ]]
 }
 
 undead_config() {
@@ -105,40 +149,6 @@ undead_resume_command() {
     codex) reply=(codex resume $rec[2] -c check_for_update_on_startup=false "${(@)args}") ;;
     *) return 1 ;;
   esac
-}
-
-# Maps a tty, as `ps -o tty=` prints it (ttys022), to the terminal tab id, so agents that were already running when
-# undead was installed can be adopted. iTerm2 hands out as a session's `unique id` the same GUID ITERM_SESSION_ID
-# carries, so the ids match what undead_terminal_id builds. Terminal.app's dictionary has a tab's tty but no id at
-# all, so its tabs can't be adopted. Fills undead_tty_tab; fails when nothing could be read.
-undead_tty_tabs() {
-  emulate -L zsh
-  local out line tty id
-  typeset -gA undead_tty_tab=()
-  # `is running` is checked by AppleScript itself, so this never launches iTerm2
-  out=$(osascript - <<'APPLESCRIPT' 2>/dev/null
-if application "iTerm2" is running then
-  tell application "iTerm2"
-    set out to ""
-    repeat with w in windows
-      repeat with t in tabs of w
-        repeat with s in sessions of t
-          set out to out & (tty of s) & " " & (unique id of s) & linefeed
-        end repeat
-      end repeat
-    end repeat
-    return out
-  end tell
-end if
-APPLESCRIPT
-  ) || return 1
-  for line in ${(f)out}; do
-    tty=${${line%% *}#/dev/}
-    id=${line##* }
-    [[ $tty == tty* && $id =~ '^[A-Za-z0-9._-]+$' ]] || continue
-    undead_tty_tab[$tty]=iterm2-$id
-  done
-  (( ${#undead_tty_tab} ))
 }
 
 # A live shell registered for the given terminal id, other than the caller.

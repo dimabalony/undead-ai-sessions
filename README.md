@@ -69,8 +69,10 @@ Inside Claude Code:
 /undead
 ```
 
-The plugin is a thin wrapper: it adds the `/undead` command, while the tool itself is still installed as above. Later,
-`claude plugin marketplace update undead-ai-sessions` picks up new versions.
+The plugin is a thin wrapper: it adds the `/undead` command, while the tool itself is still installed as above.
+
+To update: `claude plugin update undead@undead-ai-sessions` (or the `/plugin` manager). When the plugin then ships a
+newer undead than the one you have, your next Claude Code session says so, and `undead upgrade` updates the tool.
 
 ## Usage
 
@@ -78,6 +80,7 @@ The plugin is a thin wrapper: it adds the `/undead` command, while the tool itse
 undead install [--no-claude] [--no-codex] [--no-shell]   set up (safe to run again)
 undead uninstall [--purge]                               remove everything it added
 undead adopt [--dry-run]                                 protect the sessions already running
+undead upgrade [--check]                                 update undead itself to the latest release
 undead doctor                                            check that restores will work
 undead list                                              saved sessions and whether their tab is open
 undead reopen [N|ID|--all]                               resume a session whose tab is gone, in a new tab
@@ -144,7 +147,7 @@ Some sessions are ignored on purpose, because they aren't the session that belon
 - other apps that inherited a terminal's tab id (for example VS Code's terminal opened from iTerm2)
 
 `undead log` says which one applied. An agent that was already running when you installed undead is picked up by
-`undead adopt`, which `undead install` runs for you.
+`undead adopt`, which `undead install` runs for you — Claude Code and Codex, in iTerm2 and Terminal.app alike.
 
 ### Claude asks to trust my home folder every time
 

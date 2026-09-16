@@ -37,9 +37,20 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - **No jq or python dependency**: hooks parse JSON with `plutil`, the CLI edits JSON through
   `osascript -l JavaScript` (`lib/json-hooks.js`), both part of macOS.
 - **Adopt at install.** Installing undead used to leave every running agent unprotected until its tab was restarted.
-  `undead adopt`, which `undead install` runs last, closes that gap from two sources: Claude Code's own
-  `~/.claude/sessions/<pid>.json` (session id, cwd, and a `procStart` that makes a reused pid detectable) and the
-  terminal's tty -> tab id map. What can't be read is reported, never guessed from the working directory.
+  `undead adopt`, which `undead install` runs last, closes that gap. What can't be read is reported, never guessed
+  from the working directory.
+- **The tab comes from the agent's own environment**, read with `ps -E`. The agent inherited `TERM_PROGRAM` and
+  `ITERM_SESSION_ID` / `TERM_SESSION_ID` from the shell that started it, so `undead_tab_id` applies the same rules to
+  it as the shell applies to itself. Not the shell's own environment: a tab's login shell comes from `/usr/bin/login`
+  and macOS won't show its environment. This replaced an AppleScript tty -> tab map, which needed automation
+  permission and left out Terminal.app, whose dictionary exposes a tab's `tty` but no id.
+- **Codex's session comes from the rollout it holds open.** Codex writes no pid and no tty anywhere, but a running one
+  keeps its rollout files open, so `lsof` finds them and the header's `source` picks out the tab's conversation: the
+  one that says `cli`, with the rest belonging to its subagents. Never the newest or the one whose `cwd` matches -- a
+  months-old rollout resumed today is still the tab's session. Zero or several are reported rather than guessed.
+- **`undead upgrade` installs releases, not `main`**, so an upgrade lands on a version someone tagged. It replaces
+  `bin/` and `lib/` under the install directory and nothing else: the hook paths don't change, so there is no
+  re-install and Codex doesn't ask to trust the hook again. Homebrew installs are sent to `brew upgrade`.
 - **The plugin lives in `plugin/`, not at the repo root.** Claude Code appends a plugin's `bin/` to the Bash tool's
   PATH, so a root-level plugin would shadow `undead` for users who haven't installed it.
 
@@ -54,11 +65,15 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - Codex sub-agents fire `SubagentStart`, not `SessionStart`, so they can't be confused with the tab's session.
 - Terminal.app restores tab ids after a **normal** quit, not after a force quit (measured both ways).
 - Claude Code never persists trust for the home directory, so it asks every time an agent starts in `~`.
-- Codex stores no pid and no tty: `~/.codex/session_index.jsonl` holds only `id`, `thread_name` and `updated_at`, and
-  a rollout header has `cwd` and `originator` but nothing tying it to a process. So a running Codex session can't be
-  adopted, only reported.
-- Terminal.app's AppleScript dictionary gives a tab a `tty` but no id of any kind, so its tabs can't be mapped back to
-  a `TERM_SESSION_ID`. iTerm2's `unique id` of a session is exactly the GUID `ITERM_SESSION_ID` carries.
+- `ps -Eww -o command= -p <pid>` prints a same-user process's inherited environment after its command line. It works
+  for a running `claude` or `codex`, and not for the tab's login shell, which `/usr/bin/login` started.
+- Codex stores no pid and no tty in any file: `~/.codex/session_index.jsonl` holds only `id`, `thread_name` and
+  `updated_at`, and a rollout header has `cwd` and `originator` but nothing tying it to a process. It does hold its
+  rollout files open, which is what `lsof` is for.
+- A running Codex holds several rollouts open at once: its own conversation plus one per internal subagent. Only the
+  header's `payload.source` separates them (`"cli"` against a `{"subagent": ...}` object).
+- Terminal.app's AppleScript dictionary gives a tab a `tty` but no id of any kind. Its `TERM_SESSION_ID` is only
+  readable from a process inside the tab. iTerm2's `unique id` of a session is the GUID `ITERM_SESSION_ID` carries.
 - Agent-team teammates cannot be restored: Claude Code's own docs list "no session resumption with in-process
   teammates", and a team's config is deleted when the lead exits.
 
@@ -70,7 +85,7 @@ lib/undead.zsh     shell integration (sourced from ~/.zshrc)
 lib/hook           SessionStart/SessionEnd hook for both agents
 lib/common.zsh     shared helpers: tab id, flag allowlist, resume command, log
 lib/json-hooks.js  edits settings.json / hooks.json (macOS JavaScript, follows symlinks)
-test/              6 suites, sandboxed HOME, fake agents, real pseudo-terminals
+test/              7 suites, sandboxed HOME, fake agents, real pseudo-terminals
 install.sh         copies into ~/.local/share/undead and runs `undead install`
 plugin/            Claude Code plugin: manifest, /undead command, nudge hook; the marketplace at the root points at it
 ```
@@ -80,7 +95,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 60 s, 178 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 75 s, 223 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead

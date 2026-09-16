@@ -41,15 +41,16 @@ check "the SessionStart hook runs it from the plugin root" eval '[[ $REPLY == *\
 check "with a 5 second timeout" json_is $ROOT/plugin/hooks/hooks.json hooks.SessionStart.0.hooks.0.timeout 5
 check "it is not a second recording hook" eval '[[ "$(<$ROOT/plugin/hooks/hooks.json)" != *SessionEnd* ]]'
 
-# A stand-in undead somewhere on PATH
+# A stand-in undead somewhere on PATH, reporting whichever version a case needs
 mkdir -p $SANDBOX/installed
-print -l -- '#!/bin/sh' 'exit 0' > $SANDBOX/installed/undead
-chmod +x $SANDBOX/installed/undead
-nudge() { out=$(env PATH=$1 CLAUDE_PLUGIN_ROOT=$ROOT $NUDGE </dev/null 2>&1); rc=$? }
+fake_undead() { print -l -- '#!/bin/sh' "echo \"undead $1\"" > $SANDBOX/installed/undead; chmod +x $SANDBOX/installed/undead }
+json $P/plugin.json version; PLUGIN_VERSION=$REPLY
+fake_undead $PLUGIN_VERSION
+nudge() { out=$(env PATH=$1 CLAUDE_PLUGIN_ROOT=$ROOT/plugin $NUDGE </dev/null 2>&1); rc=$? }
 one_line() { [[ $1 != *$'\n'* ]] }
 
 nudge $SANDBOX/installed:/usr/bin:/bin
-check "says nothing when undead is on PATH" test -z "$out"
+check "says nothing when the CLI is as new as the plugin" test -z "$out"
 check "...and exits 0" test $rc -eq 0
 check "...and leaves no stamp behind" missing $STAMP
 
@@ -77,5 +78,23 @@ zf_rm -f $STAMP
 nudge /usr/bin:/bin
 check "~/.local/bin/undead counts even when PATH misses it" test -z "$out"
 check "...and exits 0" test $rc -eq 0
+
+# The plugin travels with a version of undead; when it is ahead of the CLI, say so instead of staying quiet
+print -r -- "a newer undead"
+zf_rm -f $HOME/.local/bin/undead
+fake_undead 0.0.1
+nudge $SANDBOX/installed:/usr/bin:/bin
+check "an older CLI is told a newer one exists" eval '[[ $out == *"undead $PLUGIN_VERSION is available (you have 0.0.1)"* ]]'
+check "...and which command updates it" eval '[[ $out == *"undead upgrade"* ]]'
+check "...on one line of JSON" eval 'one_line "$out" && print -r -- "$out" | plutil -extract systemMessage raw -o - - >/dev/null'
+check "...exiting 0" test $rc -eq 0
+check "...stamped for this version" test -f ${STAMP:h}/upgrade-$PLUGIN_VERSION
+
+nudge $SANDBOX/installed:/usr/bin:/bin
+check "the second session that day says nothing" test -z "$out"
+
+fake_undead 99.0.0
+nudge $SANDBOX/installed:/usr/bin:/bin
+check "a CLI newer than the plugin is left alone" test -z "$out"
 
 finish

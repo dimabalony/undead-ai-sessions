@@ -1,6 +1,6 @@
 ---
 description: Run undead, the tool that brings Claude Code and Codex sessions back in restored terminal tabs, or set it up if it isn't installed
-argument-hint: '[doctor|list|reopen|forget|log|install|uninstall]'
+argument-hint: '[doctor|list|reopen|forget|log|upgrade|install|uninstall]'
 disable-model-invocation: true
 allowed-tools: Bash(undead:*), Bash(command -v undead), AskUserQuestion
 ---
@@ -12,9 +12,11 @@ terminal restores a tab, so it can't be done from here.
 
 Find the installed CLI with `command -v undead`, then `~/.local/bin/undead`.
 
-**Installed:** run `undead $ARGUMENTS`, then explain the result in a few lines — for `doctor`, which check failed and
+**Installed:** run `undead $ARGUMENTS`, then explain the result in a few lines — for `upgrade`, which version it
+moved to, or that it is already current — for `doctor`, which check failed and
 the exact setting that fixes it; for `list`, which saved sessions still have an open tab; for `log`, what the last
-`recorded` / `resuming` / `forgot` / `skip` decisions mean.
+`recorded` / `resuming` / `forgot` / `skip` decisions mean. `undead upgrade` replaces the CLI in place; it needs no
+reinstall and changes no hooks.
 
 **Not installed:** say what the installer touches:
 

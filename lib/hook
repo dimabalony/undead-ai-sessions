@@ -65,17 +65,10 @@ record() {
 transcript=$(json transcript_path)
 [[ -n $transcript ]] || { log "skip: $sid has no transcript"; exit 0 }
 codex_source() {
-  local header type
-  header=$(head -n 1 $transcript 2>/dev/null) && [[ -n $header ]] || return 1
-  # Not valid JSON yet while Codex is still writing the first line
-  plutil -type type - <<<$header >/dev/null 2>&1 || return 1
-  type=$(plutil -type payload.source - <<<$header 2>/dev/null) || type=missing
-  if [[ $type == string ]]; then
-    src=$(plutil -extract payload.source raw -o - - <<<$header 2>/dev/null)
-  else
-    src=$type
-  fi
-  [[ -n $src ]]
+  local header
+  header=$(head -n 1 $transcript 2>/dev/null) || return 1
+  undead_rollout_source "$header" || return 1
+  src=$REPLY
 }
 check() { [[ $src == cli ]] && record || log "skip: $sid source is $src" }
 

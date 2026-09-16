@@ -16,8 +16,18 @@ SRC=$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)
 if [ ! -f "$SRC/lib/hook" ]; then
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' EXIT
-  echo "Downloading undead..."
-  curl -fsSL "$REPO/archive/refs/heads/main.tar.gz" | tar -xz -C "$TMP" --strip-components 1
+  # The latest release, falling back to main when the API is unreachable. This repeats `undead upgrade`'s tag lookup
+  # on purpose: install.sh runs before undead exists, so it can't source lib/common.zsh and stays POSIX sh.
+  TAG=$(curl -fsSL "https://api.github.com/repos/dimabalony/undead-ai-sessions/releases/latest" 2>/dev/null |
+        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  if [ -n "$TAG" ]; then
+    echo "Downloading undead $TAG..."
+    URL="$REPO/archive/refs/tags/$TAG.tar.gz"
+  else
+    echo "Downloading undead..."
+    URL="$REPO/archive/refs/heads/main.tar.gz"
+  fi
+  curl -fsSL "$URL" | tar -xz -C "$TMP" --strip-components 1
   SRC=$TMP
 fi
 

@@ -4,13 +4,6 @@ U=$ROOT/bin/undead
 hooks_in() { REPLY=$(osascript -l JavaScript $ROOT/lib/json-hooks.js find $1) }
 count_in() { grep -c -- "$2" $1 2>/dev/null }
 
-# osascript is shadowed so `undead install` can't ask a real terminal for its tabs; -l JavaScript still reaches the
-# real one, which lib/json-hooks.js needs
-mkdir -p $SANDBOX/bin
-print -l -- '#!/bin/sh' 'case "$1" in -l) exec /usr/bin/osascript "$@" ;; esac' 'cat >/dev/null 2>&1' > $SANDBOX/bin/osascript
-chmod +x $SANDBOX/bin/osascript
-export PATH=$SANDBOX/bin:$PATH
-
 mkdir -p $HOME/.claude $HOME/.codex
 cat > $HOME/.claude/settings.json <<'EOF'
 {

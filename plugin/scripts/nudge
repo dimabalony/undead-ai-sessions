@@ -1,21 +1,34 @@
 #!/bin/zsh -f
-# SessionStart hook for the Claude Code plugin: says once a day that the undead CLI isn't installed yet.
+# SessionStart hook for the Claude Code plugin: says once a day that the undead CLI is missing, or that this plugin
+# ships a newer one than the CLI you have. Nothing here goes on the network.
 # It is not a recording hook: lib/hook is installed by `undead install`, and a second copy here would double-record.
 # Never fails a session: every path exits 0.
 emulate -L zsh
 zmodload zsh/datetime
 zmodload -F zsh/stat b:zstat
+autoload -Uz is-at-least
 
 # Claude Code sends the event JSON on stdin; this hook doesn't need it, but an unread pipe would break the writer.
 cat >/dev/null 2>&1
 
-(( $+commands[undead] )) && exit 0
-[[ -x $HOME/.local/bin/undead ]] && exit 0
+local exe=${commands[undead]:-$HOME/.local/bin/undead} have want message stamp
+local state=${XDG_STATE_HOME:-$HOME/.local/state}/undead-plugin
 
-local stamp=${XDG_STATE_HOME:-$HOME/.local/state}/undead-plugin/nudged
-mkdir -p ${stamp:h} 2>/dev/null || exit 0
+if [[ -x $exe ]]; then
+  have=${${=$($exe version 2>/dev/null)}[2]}
+  want=$(plutil -extract version raw -o - - < ${CLAUDE_PLUGIN_ROOT:-.}/.claude-plugin/plugin.json 2>/dev/null)
+  [[ -n $have && -n $want ]] || exit 0
+  is-at-least $want $have && exit 0
+  message="undead $want is available (you have $have): run \`undead upgrade\`."
+  stamp=$state/upgrade-$want
+else
+  message="undead is not installed: run /undead to bring Claude Code and Codex sessions back in terminal tabs your terminal restores."
+  stamp=$state/nudged
+fi
+
+mkdir -p $state 2>/dev/null || exit 0
 [[ -f $stamp ]] && (( EPOCHSECONDS - $(zstat +mtime $stamp 2>/dev/null || print 0) < 86400 )) && exit 0
 : > $stamp 2>/dev/null || exit 0
 
-print -r -- '{"systemMessage":"undead is not installed: run /undead to bring Claude Code and Codex sessions back in terminal tabs your terminal restores."}'
+print -r -- "{\"systemMessage\":\"$message\"}"
 exit 0
