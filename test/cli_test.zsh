@@ -4,6 +4,13 @@ U=$ROOT/bin/undead
 hooks_in() { REPLY=$(osascript -l JavaScript $ROOT/lib/json-hooks.js find $1) }
 count_in() { grep -c -- "$2" $1 2>/dev/null }
 
+# osascript is shadowed so `undead install` can't ask a real terminal for its tabs; -l JavaScript still reaches the
+# real one, which lib/json-hooks.js needs
+mkdir -p $SANDBOX/bin
+print -l -- '#!/bin/sh' 'case "$1" in -l) exec /usr/bin/osascript "$@" ;; esac' 'cat >/dev/null 2>&1' > $SANDBOX/bin/osascript
+chmod +x $SANDBOX/bin/osascript
+export PATH=$SANDBOX/bin:$PATH
+
 mkdir -p $HOME/.claude $HOME/.codex
 cat > $HOME/.claude/settings.json <<'EOF'
 {
@@ -27,6 +34,7 @@ check "keeps other Claude settings" has $HOME/.claude/settings.json '"model": "o
 hooks_in $HOME/.codex/hooks.json
 check "adds the Codex SessionStart hook" test "$REPLY" = "SessionStart '$ROOT/lib/hook' codex start # undead"
 check "backs up the files it changed" test -n "$(print $STATE/backups/settings.json.*(N))"
+check "protects the sessions already running" has $SANDBOX/out "Sessions already running"
 
 cp $HOME/.zshrc $SANDBOX/zshrc.first
 $U install > /dev/null 2>&1

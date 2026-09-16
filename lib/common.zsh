@@ -2,7 +2,7 @@
 # UNDEAD_STATE_DIR / UNDEAD_CONFIG_DIR only exist for tests: Codex runs hooks with a scrubbed environment,
 # so real installs must use the defaults.
 
-typeset -g UNDEAD_VERSION=0.1.0
+typeset -g UNDEAD_VERSION=0.2.0
 typeset -g UNDEAD_REPO=https://github.com/dimabalony/undead-ai-sessions
 typeset -g UNDEAD_STATE=${UNDEAD_STATE_DIR:-$HOME/.local/state/undead}
 typeset -g UNDEAD_CONFIG=${UNDEAD_CONFIG_DIR:-$HOME/.config/undead}
@@ -105,6 +105,40 @@ undead_resume_command() {
     codex) reply=(codex resume $rec[2] -c check_for_update_on_startup=false "${(@)args}") ;;
     *) return 1 ;;
   esac
+}
+
+# Maps a tty, as `ps -o tty=` prints it (ttys022), to the terminal tab id, so agents that were already running when
+# undead was installed can be adopted. iTerm2 hands out as a session's `unique id` the same GUID ITERM_SESSION_ID
+# carries, so the ids match what undead_terminal_id builds. Terminal.app's dictionary has a tab's tty but no id at
+# all, so its tabs can't be adopted. Fills undead_tty_tab; fails when nothing could be read.
+undead_tty_tabs() {
+  emulate -L zsh
+  local out line tty id
+  typeset -gA undead_tty_tab=()
+  # `is running` is checked by AppleScript itself, so this never launches iTerm2
+  out=$(osascript - <<'APPLESCRIPT' 2>/dev/null
+if application "iTerm2" is running then
+  tell application "iTerm2"
+    set out to ""
+    repeat with w in windows
+      repeat with t in tabs of w
+        repeat with s in sessions of t
+          set out to out & (tty of s) & " " & (unique id of s) & linefeed
+        end repeat
+      end repeat
+    end repeat
+    return out
+  end tell
+end if
+APPLESCRIPT
+  ) || return 1
+  for line in ${(f)out}; do
+    tty=${${line%% *}#/dev/}
+    id=${line##* }
+    [[ $tty == tty* && $id =~ '^[A-Za-z0-9._-]+$' ]] || continue
+    undead_tty_tab[$tty]=iterm2-$id
+  done
+  (( ${#undead_tty_tab} ))
 }
 
 # A live shell registered for the given terminal id, other than the caller.

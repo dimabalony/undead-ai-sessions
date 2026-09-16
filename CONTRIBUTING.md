@@ -36,6 +36,10 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - **No daemon, no polling, no AppleScript typing** (except `undead reopen`, which you run yourself).
 - **No jq or python dependency**: hooks parse JSON with `plutil`, the CLI edits JSON through
   `osascript -l JavaScript` (`lib/json-hooks.js`), both part of macOS.
+- **Adopt at install.** Installing undead used to leave every running agent unprotected until its tab was restarted.
+  `undead adopt`, which `undead install` runs last, closes that gap from two sources: Claude Code's own
+  `~/.claude/sessions/<pid>.json` (session id, cwd, and a `procStart` that makes a reused pid detectable) and the
+  terminal's tty -> tab id map. What can't be read is reported, never guessed from the working directory.
 - **The plugin lives in `plugin/`, not at the repo root.** Claude Code appends a plugin's `bin/` to the Bash tool's
   PATH, so a root-level plugin would shadow `undead` for users who haven't installed it.
 
@@ -50,18 +54,23 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - Codex sub-agents fire `SubagentStart`, not `SessionStart`, so they can't be confused with the tab's session.
 - Terminal.app restores tab ids after a **normal** quit, not after a force quit (measured both ways).
 - Claude Code never persists trust for the home directory, so it asks every time an agent starts in `~`.
+- Codex stores no pid and no tty: `~/.codex/session_index.jsonl` holds only `id`, `thread_name` and `updated_at`, and
+  a rollout header has `cwd` and `originator` but nothing tying it to a process. So a running Codex session can't be
+  adopted, only reported.
+- Terminal.app's AppleScript dictionary gives a tab a `tty` but no id of any kind, so its tabs can't be mapped back to
+  a `TERM_SESSION_ID`. iTerm2's `unique id` of a session is exactly the GUID `ITERM_SESSION_ID` carries.
 - Agent-team teammates cannot be restored: Claude Code's own docs list "no session resumption with in-process
   teammates", and a team's config is deleted when the lead exits.
 
 ## Layout
 
 ```
-bin/undead         CLI: install, uninstall, doctor, list, reopen, forget, log, donate
+bin/undead         CLI: install, uninstall, adopt, doctor, list, reopen, forget, log, donate
 lib/undead.zsh     shell integration (sourced from ~/.zshrc)
 lib/hook           SessionStart/SessionEnd hook for both agents
 lib/common.zsh     shared helpers: tab id, flag allowlist, resume command, log
 lib/json-hooks.js  edits settings.json / hooks.json (macOS JavaScript, follows symlinks)
-test/              5 suites, sandboxed HOME, fake agents, real pseudo-terminals
+test/              6 suites, sandboxed HOME, fake agents, real pseudo-terminals
 install.sh         copies into ~/.local/share/undead and runs `undead install`
 plugin/            Claude Code plugin: manifest, /undead command, nudge hook; the marketplace at the root points at it
 ```
@@ -71,7 +80,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 45 s, 149 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 60 s, 178 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead

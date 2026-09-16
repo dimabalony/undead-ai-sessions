@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- `undead adopt` records the Claude Code sessions that are already running, so installing undead no longer means
+  restarting every tab; `undead install` runs it last and says how many it adopted
+- Sessions it can't adopt are named, with the reason: Codex saves no pid or tty, and Terminal.app tabs have no id
+
 ## 0.1.0
 
 First release.

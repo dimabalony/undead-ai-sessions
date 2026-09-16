@@ -25,6 +25,7 @@ guessing. It should feel like you never quit.
 - **Claude Code and Codex**, side by side in the same terminal.
 - **iTerm2 tabs and split panes, and Terminal.app.**
 - **No daemon, no polling, no typing into a running agent**, and no dependencies beyond macOS itself.
+- **Works for the sessions already running when you install it**, without restarting a single tab.
 - **Never adds a flag you didn't use.** A session you closed stays closed; one killed by quitting the terminal comes
   back.
 
@@ -53,7 +54,8 @@ cd undead-ai-sessions
 
 Then:
 
-1. **Open a new tab.** Tabs that were already open don't have undead yet.
+1. **Nothing to restart.** `undead install` adopts the agents already running in your tabs; tabs you open later
+   are covered automatically.
 2. **Codex only:** the next time you start `codex` it says *Hooks need review*. Choose **Trust all and continue**.
 3. Run `undead doctor` to check that everything is set up.
 
@@ -75,6 +77,7 @@ The plugin is a thin wrapper: it adds the `/undead` command, while the tool itse
 ```text
 undead install [--no-claude] [--no-codex] [--no-shell]   set up (safe to run again)
 undead uninstall [--purge]                               remove everything it added
+undead adopt [--dry-run]                                 protect the sessions already running
 undead doctor                                            check that restores will work
 undead list                                              saved sessions and whether their tab is open
 undead reopen [N|ID|--all]                               resume a session whose tab is gone, in a new tab
@@ -140,7 +143,8 @@ Some sessions are ignored on purpose, because they aren't the session that belon
 - Codex's internal sessions (auto-review, memory)
 - other apps that inherited a terminal's tab id (for example VS Code's terminal opened from iTerm2)
 
-`undead log` says which one applied.
+`undead log` says which one applied. An agent that was already running when you installed undead is picked up by
+`undead adopt`, which `undead install` runs for you.
 
 ### Claude asks to trust my home folder every time
 

@@ -30,6 +30,7 @@ Usage: undead <command>
   install [--no-claude] [--no-codex] [--no-shell]
                            Add the hooks and the ~/.zshrc line (safe to run again)
   uninstall [--purge]      Remove them; --purge also deletes saved sessions and settings
+  adopt [--dry-run]        Protect the sessions already running, without restarting them
   doctor                   Check that restores will work on this Mac
   list                     Saved sessions, and whether their tab is still open
   reopen [N|ID|--all]      Resume a session whose tab is gone in a new tab
@@ -127,10 +128,126 @@ cmd_install() {
   fi
 
   print -r -- ''
+  print -r -- "${c_bold}Sessions already running${c_off}"
+  adopt_run
+  (( ADOPTED || STUCK )) || dim "none"
+
+  print -r -- ''
   print -r -- "${c_bold}Next${c_off}"
-  print -r -- "  1. Open a new terminal tab: tabs that are already open don't have undead yet."
+  adopt_next '  1. ' '     '
   (( codex )) && have_codex && print -r -- "  2. The next time you start codex it asks \"Hooks need review\": choose ${c_bold}Trust all and continue${c_off}."
   print -r -- "  Check everything with: undead doctor"
+}
+
+# Records the agents that are already running, so installing undead doesn't mean restarting every tab.
+# Two sources: Claude Code's own ~/.claude/sessions/<pid>.json (session id, cwd, and a procStart that makes a reused
+# pid detectable) and the terminal's tty -> tab id map. Codex stores neither a pid nor a tty, and Terminal.app has no
+# per-tab id, so those are reported rather than guessed.
+typeset -g ADOPTED=0 STUCK=0 DRY=0
+
+adopt_log() { (( DRY )) || undead_log "adopt[$$] $*" }
+adopt_json() { plutil -extract $2 raw -o - - < $1 2>/dev/null }
+# Claude Code writes procStart in UTC and `ps -o lstart=` prints local time, with a space-padded day in both, so the
+# pid-reuse guard compares instants rather than strings. Usage: adopt_epoch "<date text>" [UTC]
+adopt_epoch() {
+  local -a w=(${=1})
+  (( $#w == 5 )) || return 1
+  if [[ $2 == UTC ]]; then
+    REPLY=$(TZ=UTC date -j -f '%a %b %e %H:%M:%S %Y' "${(j: :)w}" +%s 2>/dev/null)
+  else
+    REPLY=$(date -j -f '%a %b %e %H:%M:%S %Y' "${(j: :)w}" +%s 2>/dev/null)
+  fi
+  [[ -n $REPLY ]]
+}
+# Belongs to a tab, but can't be adopted: saying so is the point, since restarting that agent fixes it
+adopt_stuck() { adopt_log "skip: $1"; warn "$2"; (( STUCK++ )) }
+
+adopt_run() {
+  local line pid ppid tty tool parent shell id file sid cwd kind started tmp i
+  local -a f args
+  ADOPTED=0 STUCK=0
+  undead_tty_tabs
+  (( DRY )) || zf_mkdir -p -m 700 $UNDEAD_STATE $UNDEAD_STATE/tabs $UNDEAD_STATE/shells
+  # -x without -a: this user's processes only, so another account's agents on this Mac are never touched
+  for line in ${(f)"$(ps -xo pid=,ppid=,tty=,comm= 2>/dev/null)"}; do
+    f=(${=line})
+    (( $#f >= 4 )) || continue
+    pid=$f[1] ppid=$f[2] tty=$f[3] tool=${f[4]:t}
+    [[ $tool == (claude|codex) && $tty == tty* ]] || continue
+    # The tab's own session is the one its shell started. Codex sits under a node launcher, so climb past node the
+    # way lib/hook does; a nested agent keeps an agent (or the Bash tool's sh) above it and is left alone.
+    shell=$ppid
+    for i in 1 2 3; do
+      parent=$(ps -o comm= -p $shell 2>/dev/null)
+      [[ ${parent:t} == node ]] || break
+      shell=$(ps -o ppid= -p $shell 2>/dev/null | tr -d ' ')
+      (( shell > 1 )) || break
+    done
+    [[ ${parent:t} == *zsh ]] || { adopt_log "skip: $tool[$pid] runs under ${${parent:t}:-?}, not a tab shell"; continue }
+    kill -0 $pid 2>/dev/null || { adopt_log "skip: $tool[$pid] is gone"; continue }
+    id=$undead_tty_tab[$tty]
+    [[ -n $id ]] || { adopt_stuck "no tab id for $tty ($tool[$pid])" "$tool on $tty: this terminal has no tab ids"; continue }
+    [[ $tool == claude ]] || { adopt_stuck "codex[$pid] saves no pid or tty" "codex on $tty: Codex saves no pid, so it can't be adopted"; continue }
+
+    file=$HOME/.claude/sessions/$pid.json
+    [[ -r $file ]] || { adopt_stuck "claude[$pid] has no session file" "claude on $tty: no session file to read it from"; continue }
+    started=
+    adopt_epoch "$(adopt_json $file procStart)" UTC && started=$REPLY
+    adopt_epoch "$(ps -o lstart= -p $pid)" || REPLY=
+    [[ -n $started && $REPLY == $started ]] ||
+      { adopt_stuck "claude[$pid] session file is for an older process" "claude on $tty: its session file belongs to an older process"; continue }
+    kind=$(adopt_json $file kind)
+    [[ $kind == interactive ]] || { adopt_log "skip: claude[$pid] is a $kind session"; continue }
+    sid=$(adopt_json $file sessionId)
+    cwd=$(adopt_json $file cwd)
+    [[ $sid =~ '^[0-9a-fA-F-]+$' && -n $cwd ]] ||
+      { adopt_stuck "claude[$pid] has no usable session id or cwd" "claude on $tty: its session file is incomplete"; continue }
+
+    undead_replay_flags claude "$(ps -o args= -p $pid 2>/dev/null)" || reply=()
+    args=("${(@)reply}")
+    if (( DRY )); then
+      print -r -- "  would adopt claude $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
+    else
+      tmp=$UNDEAD_STATE/tabs/.tmp.$$
+      print -rl -- claude $sid $cwd "${(@)args}" > $tmp && zf_mv -f $tmp $UNDEAD_STATE/tabs/$id || continue
+      # So a later /exit in that tab is forgotten, and a new agent started there is recorded
+      print -rl -- $id "$(ps -o lstart= -p $shell)" > $UNDEAD_STATE/shells/$shell
+      adopt_log "adopted $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
+      ok "claude in ${cwd/#$HOME/~}"
+    fi
+    (( ADOPTED++ ))
+  done
+}
+
+# What `undead install` prints in place of "open a new tab", and what `undead adopt` ends on
+adopt_next() {
+  local first=$1 rest=$2 plural=s verb=Adopted
+  (( ADOPTED == 1 )) && plural=
+  (( DRY )) && verb="Would adopt"
+  if (( ADOPTED )); then
+    print -r -- "${first}$verb $ADOPTED running session$plural; tabs you open later are covered automatically."
+  elif (( STUCK )); then
+    print -r -- "${first}Tabs you open later are covered automatically."
+  else
+    print -r -- "${first}Open a new terminal tab: tabs that are already open don't have undead yet."
+  fi
+  (( STUCK )) && print -r -- "${rest}$STUCK could not be adopted: restart the agent in those tabs."
+  return 0
+}
+
+cmd_adopt() {
+  local arg
+  for arg in "$@"; do
+    case $arg in
+      --dry-run) DRY=1 ;;
+      *) die "unknown option: $arg" ;;
+    esac
+  done
+  print -r -- "${c_bold}Sessions already running${c_off}"
+  adopt_run
+  (( ADOPTED || STUCK )) || { dim "no agent is running in a terminal tab"; return 0 }
+  print -r -- ''
+  adopt_next '' ''
 }
 
 cmd_uninstall() {
@@ -408,6 +525,7 @@ cmd_donate() {
 case $1 in
   install) shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
+  adopt) shift; cmd_adopt "$@" ;;
   doctor) cmd_doctor ;;
   list|ls) cmd_list ;;
   reopen) shift; cmd_reopen "$@" ;;
