@@ -45,6 +45,11 @@ print -r -- "[hooks.state.\"$HOME/.codex/hooks.json:session_start:0:0\"]" > $HOM
 print -r -- 'trusted_hash = "sha256:abc"' >> $HOME/.codex/config.toml
 TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:DOC $U doctor > $SANDBOX/out 2>&1
 check "sees when Codex trusted the hook" has $SANDBOX/out "Codex has trusted a hook"
+check "warns when the tab's shell isn't registered" has $SANDBOX/out "started before undead was installed"
+print -rl -- iterm2-DOC "$(ps -o lstart= -p $$)" > $STATE/shells/$$
+TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:DOC zsh -c "$U doctor; :" > $SANDBOX/out 2>&1
+check "finds the registered tab shell above an intermediate process, as under an agent" has $SANDBOX/out "shell is registered"
+rm -f $STATE/shells/$$
 
 print -r -- "list, forget, reopen, donate"
 print -rl -- claude 11111111-2222-3333-4444-555555555555 $HOME/project > $STATE/tabs/iterm2-L1

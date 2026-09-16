@@ -372,6 +372,21 @@ cmd_uninstall() {
   print -r -- "Open terminal tabs keep undead until they are closed."
 }
 
+# Doctor may run from the tab's shell or from an agent's Bash tool inside it: climb until a registered shell turns up
+tab_shell_registered() {
+  local p=$PPID i
+  local -a reg
+  for i in {1..8}; do
+    (( p > 1 )) || return 1
+    if [[ -r $UNDEAD_STATE/shells/$p ]]; then
+      reg=("${(@f)$(<$UNDEAD_STATE/shells/$p)}")
+      [[ $reg[2] == "$(ps -o lstart= -p $p 2>/dev/null)" ]] && return 0
+    fi
+    p=$(ps -o ppid= -p $p 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+
 cmd_doctor() {
   local problems=0 value found hooks_file line
   print -r -- "${c_bold}Terminal${c_off}"
@@ -380,8 +395,8 @@ cmd_doctor() {
       iTerm.app) ok "iTerm2 tab ${REPLY#iterm2-}" ;;
       Apple_Terminal) ok "Terminal.app tab ${REPLY#terminal-}" ;;
     esac
-    [[ -r $UNDEAD_STATE/shells/$PPID ]] && ok "This shell is registered" ||
-      warn "This shell started before undead was installed (or isn't zsh): open a new tab"
+    tab_shell_registered && ok "This tab's shell is registered" ||
+      warn "This tab's shell started before undead was installed (or isn't zsh): open a new tab, or run undead adopt for an agent already running here"
   elif [[ -n $TMUX ]]; then
     warn "Inside tmux: tabs in tmux are not restored by undead"
   else

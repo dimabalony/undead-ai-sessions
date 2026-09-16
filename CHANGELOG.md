@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- `undead doctor` finds the tab's shell when it runs inside an agent (from Claude Code's Bash tool it used to warn
+  "started before undead was installed" about a shell that was fine), and points at `undead adopt` when it isn't
+- The plugin's `/undead` is a skill, so the bare name resolves; `/undead:undead` still works
+
 ## 0.3.0
 
 - `undead adopt` now finds a tab through the agent's own environment instead of AppleScript, so it covers Terminal.app
