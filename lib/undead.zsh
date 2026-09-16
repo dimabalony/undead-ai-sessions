@@ -12,7 +12,7 @@ typeset -g _undead_id=$REPLY
 typeset -g _undead_tab=$UNDEAD_STATE/tabs/$REPLY
 typeset -g _undead_pending= _undead_scheduled= _undead_active= _undead_marker=
 typeset -g UNDEAD_FORGET_DELAY=${UNDEAD_FORGET_DELAY:-10}
-typeset -g UNDEAD_SUPPORT_PAUSE=${UNDEAD_SUPPORT_PAUSE:-3}
+typeset -g UNDEAD_SUPPORT_PAUSE=${UNDEAD_SUPPORT_PAUSE:-10}
 
 () {
   emulate -L zsh
@@ -106,7 +106,7 @@ _undead_resume() {
 }
 
 # An occasional one-line support message, shown in one tab per restore at the 3rd, 10th, 25th, 50th restore and then
-# every 50th, and held on screen for a few seconds, since the agent's full-screen UI covers it the moment it starts.
+# every 50th, and held on screen for ten seconds, since the agent's full-screen UI covers it the moment it starts.
 # `undead donate off` hides it.
 _undead_support_message() {
   emulate -L zsh
@@ -124,7 +124,7 @@ _undead_support_message() {
     print -rl -- $count $EPOCHSECONDS > $file
     if (( count == 3 || count == 10 || count == 25 || count == 50 || (count > 50 && count % 50 == 0) )); then
       print -r -- $'\e[35m'"♥ undead has brought your AI sessions back $count times. If it saves you time, star it or support it: $UNDEAD_REPO"$'\e[0m'
-      print -r -- $'\e[2m'"  (hide this message: undead donate off)"$'\e[0m'
+      print -r -- $'\e[2m'"  (hide this message: undead donate off${UNDEAD_SUPPORT_PAUSE:+ · resuming in $UNDEAD_SUPPORT_PAUSE s})"$'\e[0m'
       shown=1
     fi
   fi

@@ -1,6 +1,6 @@
 {
   "name": "undead",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Thin wrapper for the undead CLI: your Claude Code and Codex sessions come back in restored terminal tabs.",
   "author": {
     "name": "Dmitry Bolonikov",

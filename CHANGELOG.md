@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- The support message is held for ten seconds, and says so
+
 ## 0.3.4
 
 - The support message stays on screen for three seconds before the agent starts; a full-screen agent UI used to cover
