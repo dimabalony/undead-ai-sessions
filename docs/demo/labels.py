@@ -1,7 +1,7 @@
 # Renders the labels the demo GIF overlays (docs/demo/demo.filter): two corner tags, a title card, a closing caption.
 from PIL import Image, ImageDraw, ImageFont
 import os
-W, H = 1000, 531
+W, H = 1000, 600
 def font(size):
     for f in ("/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/SFNSMono.ttf", "/Library/Fonts/SF-Compact.ttf",
               "/Library/Fonts/Arial Unicode.ttf"):
@@ -23,7 +23,7 @@ pill("caption-end.png", "Same tab. Same conversation. Nothing typed.", (32, 120,
 card = Image.new("RGB", (W, H), (18, 18, 18)); d = ImageDraw.Draw(card)
 lines = [("Gone.", font(64), (255, 255, 255)), ("Every quit, every reboot, every macOS update.", font(28), (170, 170, 170)),
          ("Now the same thing with undead:", font(28), (90, 200, 130))]
-y = 150
+y = 185
 for text, f, color in lines:
     d.text(((W - f.getlength(text)) / 2, y), text, font=f, fill=color); y += 82 if f.size == 64 else 52
 card.save(os.path.join(out, "card.png"))
