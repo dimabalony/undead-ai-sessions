@@ -1,0 +1,91 @@
+#!/bin/zsh -f
+# Claude Code / Codex hook: remembers which session runs in which terminal tab, so lib/undead.zsh can resume it
+# when the terminal restores that tab.
+#   hook claude|codex start   SessionStart: record tab -> session
+#   hook claude end           SessionEnd: forget the session when the user closed Claude on purpose
+# Hook JSON arrives on stdin. The hook never prints anything: Claude adds SessionStart output to the context.
+
+source ${0:A:h}/common.zsh
+
+tool=$1 event=$2
+input=$(cat)
+[[ $tool == (claude|codex) && $event == (start|end) ]] || exit 0
+zf_mkdir -p -m 700 $UNDEAD_STATE $UNDEAD_STATE/tabs
+
+json() { plutil -extract $1 raw -o - - <<<$input 2>/dev/null }
+log() { undead_log "${tool}[$$] $*" }
+
+sid=$(json session_id)
+[[ -n $sid ]] || { log "skip: no session_id"; exit 0 }
+
+# Climb from the hook to the agent process, then past it (and Codex's node launcher) to the shell that started it.
+# Agents started by other agents, by tmux or by scripts end up at a shell that never registered, so they are ignored.
+proc() { read -r ppid comm <<<"$(ps -o ppid=,comm= -p $1 2>/dev/null)" }
+pid=$PPID
+for i in {1..4}; do
+  proc $pid
+  [[ ${comm:t} == $tool* ]] && break
+  pid=$ppid
+done
+[[ ${comm:t} == $tool* ]] || { log "skip: no $tool process above the hook"; exit 0 }
+while [[ ${comm:t} == ($tool*|node) && $ppid -gt 1 ]]; do
+  pid=$ppid
+  proc $pid
+done
+
+shell=$UNDEAD_STATE/shells/$pid
+[[ -r $shell ]] || { log "skip: $sid was not started from a terminal tab shell (${comm:t}[$pid])"; exit 0 }
+reg=("${(@f)$(<$shell)}")
+[[ $reg[2] == "$(ps -o lstart= -p $pid)" ]] || { log "skip: stale registration for pid $pid"; exit 0 }
+tab=$UNDEAD_STATE/tabs/$reg[1]
+
+if [[ $event == end ]]; then
+  reason=$(json reason)
+  [[ $reason == (prompt_input_exit|logout|bypass_permissions_disabled) ]] || exit 0
+  [[ -r $tab && ${${(f)"$(<$tab)"}[2]} == $sid ]] || exit 0
+  zf_rm -f $tab
+  log "forgot tab $reg[1]: $tool exited ($reason)"
+  exit 0
+fi
+
+cwd=$(json cwd)
+[[ -n $cwd ]] || { log "skip: $sid has no cwd"; exit 0 }
+[[ -r $shell.cmd ]] && undead_replay_flags $tool "$(<$shell.cmd)"
+args=("${(@)reply}")
+
+record() {
+  local tmp=$UNDEAD_STATE/tabs/.tmp.$$
+  print -rl -- $tool $sid $cwd "${(@)args}" > $tmp && zf_mv -f $tmp $tab
+  log "recorded $sid for tab $reg[1] in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
+}
+
+[[ $tool == claude ]] && { record; exit 0 }
+
+# Codex also starts internal sessions; only interactive CLI sessions (source "cli" in the rollout header) are resumable.
+transcript=$(json transcript_path)
+[[ -n $transcript ]] || { log "skip: $sid has no transcript"; exit 0 }
+codex_source() {
+  local header type
+  header=$(head -n 1 $transcript 2>/dev/null) && [[ -n $header ]] || return 1
+  # Not valid JSON yet while Codex is still writing the first line
+  plutil -type type - <<<$header >/dev/null 2>&1 || return 1
+  type=$(plutil -type payload.source - <<<$header 2>/dev/null) || type=missing
+  if [[ $type == string ]]; then
+    src=$(plutil -extract payload.source raw -o - - <<<$header 2>/dev/null)
+  else
+    src=$type
+  fi
+  [[ -n $src ]]
+}
+check() { [[ $src == cli ]] && record || log "skip: $sid source is $src" }
+
+if codex_source; then
+  check
+else
+  # The rollout file can appear a moment after the hook runs
+  {
+    for i in {1..40}; do codex_source && break; sleep 0.5; done
+    [[ -n $src ]] && check || log "skip: $sid rollout never appeared"
+  } </dev/null >/dev/null 2>&1 &!
+fi
+exit 0

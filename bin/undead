@@ -1,0 +1,420 @@
+#!/bin/zsh -f
+# undead: your AI sessions refuse to die. Brings Claude Code / Codex sessions back in terminal tabs restored after
+# quitting the terminal or rebooting.
+
+LIB=${0:A:h:h}/lib
+source $LIB/common.zsh || exit 1
+
+ZSHRC=${ZDOTDIR:-$HOME}/.zshrc
+CLAUDE_SETTINGS=$HOME/.claude/settings.json
+CODEX_DIR=${CODEX_HOME:-$HOME/.codex}
+CODEX_HOOKS=$CODEX_DIR/hooks.json
+
+if [[ -t 1 ]]; then
+  c_ok=$'\e[32m' c_warn=$'\e[33m' c_fail=$'\e[31m' c_dim=$'\e[2m' c_bold=$'\e[1m' c_off=$'\e[0m'
+fi
+ok()   { print -r -- "  ${c_ok}✓${c_off} $*" }
+warn() { print -r -- "  ${c_warn}!${c_off} $*" }
+fail() { print -r -- "  ${c_fail}✗${c_off} $*"; problems=1 }
+dim()  { print -r -- "    ${c_dim}$*${c_off}" }
+die()  { print -r -- "undead: $*" >&2; exit 1 }
+
+usage() {
+  cat <<EOF
+undead $UNDEAD_VERSION: your AI sessions refuse to die.
+
+Quit your terminal or reboot, and every restored tab continues its exact Claude Code or Codex conversation.
+
+Usage: undead <command>
+
+  install [--no-claude] [--no-codex] [--no-shell]
+                           Add the hooks and the ~/.zshrc line (safe to run again)
+  uninstall [--purge]      Remove them; --purge also deletes saved sessions and settings
+  doctor                   Check that restores will work on this Mac
+  list                     Saved sessions, and whether their tab is still open
+  reopen [N|ID|--all]      Resume a session whose tab is gone in a new tab
+  forget [N|ID|--all]      Drop saved sessions
+  log [-f]                 Show (or follow) the log
+  donate [on|off]          Show or hide the occasional support message
+  version
+
+$UNDEAD_REPO
+EOF
+}
+
+# Homebrew upgrades change the Cellar path; hooks should point at the stable opt path instead
+stable_lib() {
+  REPLY=$LIB
+  if [[ $LIB == */Cellar/undead/*/libexec/lib ]]; then
+    local opt=${LIB%%/Cellar/*}/opt/undead/libexec/lib
+    [[ -d $opt ]] && REPLY=$opt
+  fi
+}
+
+backup() {
+  [[ -f $1 ]] || return 0
+  zf_mkdir -p -m 700 $UNDEAD_STATE/backups
+  cp -p $1 $UNDEAD_STATE/backups/${1:t}.$(strftime '%Y%m%d-%H%M%S' $EPOCHSECONDS)
+}
+
+json_hooks() { osascript -l JavaScript $LIB/json-hooks.js "$@" }
+
+have_claude() { [[ -d $HOME/.claude ]] || (( $+commands[claude] )) }
+have_codex() { [[ -d $CODEX_DIR ]] || (( $+commands[codex] )) }
+
+zshrc_block() { [[ -f $ZSHRC ]] && grep -q '^# >>> undead >>>$' $ZSHRC }
+
+remove_zshrc_block() {
+  zshrc_block || return 0
+  backup $ZSHRC
+  local tmp=$ZSHRC.undead.$$
+  # Drops the block and the blank line install put before it; other blank lines stay.
+  # A missing end marker (hand-edited file) exits 3 instead of eating the rest of the file.
+  awk '
+    $0 == "# >>> undead >>>" { skip = 1; blank = 0; next }
+    skip { if ($0 == "# <<< undead <<<") skip = 0; next }
+    $0 == "" { blank++; next }
+    { while (blank > 0) { print ""; blank-- } print }
+    END { if (skip) exit 3 }
+  ' $ZSHRC > $tmp || { zf_rm -f $tmp; die "the undead block in $ZSHRC has no \"# <<< undead <<<\" line; fix it by hand" }
+  [[ -s $tmp ]] || { zf_rm -f $tmp; die "refusing to leave $ZSHRC empty" }
+  # Write through the file so a symlinked ~/.zshrc (dotfile managers) stays a symlink
+  cat $tmp > $ZSHRC && zf_rm -f $tmp
+}
+
+cmd_install() {
+  local claude=1 codex=1 shell=1 arg lib
+  for arg in "$@"; do
+    case $arg in
+      --no-claude) claude=0 ;;
+      --no-codex) codex=0 ;;
+      --no-shell) shell=0 ;;
+      *) die "unknown option: $arg" ;;
+    esac
+  done
+  stable_lib; lib=$REPLY
+  [[ -x $lib/hook ]] || die "hook not found at $lib/hook"
+  zf_mkdir -p -m 700 $UNDEAD_STATE $UNDEAD_STATE/tabs $UNDEAD_STATE/shells
+  print -r -- "${c_bold}Installing undead $UNDEAD_VERSION${c_off}"
+
+  if (( shell )); then
+    remove_zshrc_block
+    backup $ZSHRC
+    print -l -- '' '# >>> undead >>>' "[[ -f ${(q)lib}/undead.zsh ]] && source ${(q)lib}/undead.zsh" '# <<< undead <<<' >> $ZSHRC
+    ok "Shell integration added to ${ZSHRC/#$HOME/~}"
+  fi
+
+  if (( claude )); then
+    if have_claude; then
+      zf_mkdir -p $HOME/.claude
+      backup $CLAUDE_SETTINGS
+      json_hooks add $CLAUDE_SETTINGS claude $lib/hook >/dev/null || die "could not update $CLAUDE_SETTINGS (left unchanged)"
+      ok "Claude Code hooks added to ${CLAUDE_SETTINGS/#$HOME/~}"
+    else
+      warn "Claude Code not found, skipped"
+    fi
+  fi
+
+  if (( codex )); then
+    if have_codex; then
+      zf_mkdir -p $CODEX_DIR
+      backup $CODEX_HOOKS
+      json_hooks add $CODEX_HOOKS codex $lib/hook >/dev/null || die "could not update $CODEX_HOOKS (left unchanged)"
+      ok "Codex hook added to ${CODEX_HOOKS/#$HOME/~}"
+    else
+      warn "Codex not found, skipped"
+    fi
+  fi
+
+  print -r -- ''
+  print -r -- "${c_bold}Next${c_off}"
+  print -r -- "  1. Open a new terminal tab: tabs that are already open don't have undead yet."
+  (( codex )) && have_codex && print -r -- "  2. The next time you start codex it asks \"Hooks need review\": choose ${c_bold}Trust all and continue${c_off}."
+  print -r -- "  Check everything with: undead doctor"
+}
+
+cmd_uninstall() {
+  local purge=0 arg
+  for arg in "$@"; do
+    case $arg in
+      --purge) purge=1 ;;
+      *) die "unknown option: $arg" ;;
+    esac
+  done
+  if zshrc_block; then
+    remove_zshrc_block
+    ok "Removed the ${ZSHRC/#$HOME/~} lines"
+  fi
+  if [[ -f $CLAUDE_SETTINGS ]]; then
+    backup $CLAUDE_SETTINGS
+    json_hooks remove $CLAUDE_SETTINGS >/dev/null && ok "Removed Claude Code hooks" || fail "could not update $CLAUDE_SETTINGS"
+  fi
+  if [[ -f $CODEX_HOOKS ]]; then
+    backup $CODEX_HOOKS
+    json_hooks remove $CODEX_HOOKS >/dev/null && ok "Removed Codex hook" || fail "could not update $CODEX_HOOKS"
+    [[ $(<$CODEX_HOOKS) == '{}' ]] && zf_rm -f $CODEX_HOOKS
+  fi
+  if (( purge )); then
+    zf_rm -rf $UNDEAD_STATE $UNDEAD_CONFIG
+    ok "Deleted saved sessions and settings"
+    local installed=$HOME/.local/share/undead link=$HOME/.local/bin/undead
+    if [[ -d $installed || -L $link ]]; then
+      # Detached, because this script is running from there
+      ( sleep 1; /bin/rm -rf $installed; [[ -L $link ]] && /bin/rm -f $link ) </dev/null >/dev/null 2>&1 &!
+      ok "Deleting ${installed/#$HOME/~} and ${link/#$HOME/~}"
+    fi
+  fi
+  print -r -- "Open terminal tabs keep undead until they are closed."
+}
+
+cmd_doctor() {
+  local problems=0 value found hooks_file line
+  print -r -- "${c_bold}Terminal${c_off}"
+  if undead_terminal_id; then
+    case $TERM_PROGRAM in
+      iTerm.app) ok "iTerm2 tab ${REPLY#iterm2-}" ;;
+      Apple_Terminal) ok "Terminal.app tab ${REPLY#terminal-}" ;;
+    esac
+    [[ -r $UNDEAD_STATE/shells/$PPID ]] && ok "This shell is registered" ||
+      warn "This shell started before undead was installed (or isn't zsh): open a new tab"
+  elif [[ -n $TMUX ]]; then
+    warn "Inside tmux: tabs in tmux are not restored by undead"
+  else
+    warn "This terminal (${TERM_PROGRAM:-unknown}) isn't supported. Supported: iTerm2, Terminal.app"
+  fi
+
+  print -r -- "${c_bold}Window restoration${c_off}"
+  if [[ $(defaults read -g NSQuitAlwaysKeepsWindows 2>/dev/null) == 1 ]]; then
+    ok "macOS reopens windows when an app relaunches"
+  else
+    fail "macOS closes windows when apps quit, so tabs don't come back"
+    dim "System Settings > Desktop & Dock > turn off \"Close windows when quitting an application\""
+  fi
+  if [[ -d /Applications/iTerm.app || -d $HOME/Applications/iTerm.app ]]; then
+    if [[ $(defaults read com.googlecode.iterm2 OpenArrangementAtStartup 2>/dev/null) == 1 ]]; then
+      fail "iTerm2 opens a window arrangement at startup instead of restoring windows"
+      dim "iTerm2 > Settings > General > Startup > Window restoration policy: Use System Window Restoration Setting"
+    elif [[ $(defaults read com.googlecode.iterm2 OpenNoWindowsAtStartup 2>/dev/null) == 1 ]]; then
+      fail "iTerm2 opens no windows at startup"
+      dim "iTerm2 > Settings > General > Startup > Window restoration policy: Use System Window Restoration Setting"
+    else
+      ok "iTerm2 restores windows at startup"
+    fi
+  fi
+
+  print -r -- "${c_bold}Shell${c_off}"
+  zshrc_block && ok "~/.zshrc loads undead" || fail "~/.zshrc doesn't load undead: run undead install"
+
+  print -r -- "${c_bold}Claude Code${c_off}"
+  if have_claude; then
+    found=$(json_hooks find $CLAUDE_SETTINGS 2>/dev/null)
+    check_hooks claude $found
+  else
+    dim "not installed"
+  fi
+
+  print -r -- "${c_bold}Codex${c_off}"
+  if have_codex; then
+    found=$(json_hooks find $CODEX_HOOKS 2>/dev/null)
+    check_hooks codex $found
+    if [[ ! -f $CODEX_DIR/config.toml ]]; then
+      warn "Codex hasn't trusted the hook yet: start codex and choose \"Trust all and continue\""
+    else
+      if awk '/^\[features\]/ { f = 1; next } /^\[/ { f = 0 } f && /^[[:space:]]*hooks[[:space:]]*=[[:space:]]*false/ { found = 1 } END { exit !found }' $CODEX_DIR/config.toml; then
+        fail "Hooks are turned off in config.toml ([features] hooks = false)"
+      fi
+      if grep -qF "[hooks.state.\"${CODEX_HOOKS}:session_start:" $CODEX_DIR/config.toml; then
+        ok "Codex has trusted a hook in hooks.json"
+        dim "Codex asks again whenever a hook changes (e.g. after reinstalling): choose \"Trust all and continue\""
+      else
+        warn "Codex hasn't trusted the hook yet: start codex and choose \"Trust all and continue\""
+      fi
+    fi
+  else
+    dim "not installed"
+  fi
+
+  print -r -- "${c_bold}Saved sessions${c_off}"
+  local -a tabs=($UNDEAD_STATE/tabs/*(N))
+  ok "${#tabs} saved, state in ${UNDEAD_STATE/#$HOME/~}"
+  if [[ -r $UNDEAD_STATE/log ]]; then
+    dim "last log lines:"
+    for line in "${(@f)$(tail -n 3 $UNDEAD_STATE/log)}"; do dim "  $line"; done
+  fi
+
+  print -r -- ''
+  (( problems )) && print -r -- "${c_fail}Some checks failed${c_off}, see above." || print -r -- "${c_ok}All good.${c_off}"
+  print -r -- "${c_dim}undead is free. If it saves you time: $UNDEAD_REPO#support${c_off}"
+  return $problems
+}
+
+check_hooks() {
+  local tool=$1 found=$2 event
+  local -a events=(SessionStart)
+  [[ $tool == claude ]] && events+=(SessionEnd)
+  local cmd
+  local -a lines=(${(f)found}) matches words
+  for event in $events; do
+    matches=(${(M)lines:#$event *})
+    cmd=${matches[1]#$event }
+    words=("${(@Q)${(z)cmd}}")
+    if [[ -z $cmd ]]; then
+      fail "$event hook missing: run undead install"
+    elif [[ ! -x $words[1] ]]; then
+      fail "$event hook points to a missing file ($words[1]): run undead install"
+    else
+      ok "$event hook installed"
+    fi
+  done
+}
+
+# Saved sessions, newest first
+load_records() {
+  records=($UNDEAD_STATE/tabs/*(N.om))
+}
+
+describe() {
+  local file=$1 tab_state age
+  local -a rec=("${(@f)$(<$file)}")
+  undead_live_shell_for ${file:t} && tab_state=open || tab_state=closed
+  age=$(( EPOCHSECONDS - $(zstat +mtime $file) ))
+  if (( age < 3600 )); then age="$(( age / 60 ))m"
+  elif (( age < 86400 )); then age="$(( age / 3600 ))h"
+  else age="$(( age / 86400 ))d"; fi
+  REPLY="$(printf '%-7s %-37s %-7s %-4s %s' $rec[1] $rec[2] $tab_state $age ${rec[3]/#$HOME/~})"
+}
+
+cmd_list() {
+  local -a records
+  local i
+  load_records
+  (( $#records )) || { print -r -- "No saved sessions."; return 0 }
+  printf "${c_dim}%-3s %-7s %-37s %-7s %-4s %s${c_off}\n" '#' TOOL SESSION TAB AGE DIRECTORY
+  for (( i = 1; i <= $#records; i++ )); do
+    describe $records[i]
+    printf '%-3s %s\n' $i $REPLY
+  done
+}
+
+# Resolves N / session id / --all into files; "closed" limits it to sessions whose tab is gone
+select_records() {
+  local want=$1 only=$2 file i
+  local -a records
+  load_records
+  selected=()
+  for (( i = 1; i <= $#records; i++ )); do
+    file=$records[i]
+    [[ $only == closed ]] && undead_live_shell_for ${file:t} && continue
+    if [[ $want == --all || $want == $i || $want == ${${(f)"$(<$file)"}[2]} ]]; then
+      selected+=($file)
+    fi
+  done
+}
+
+cmd_reopen() {
+  local want=${1:---all} file line
+  local -a selected rec
+  select_records $want closed
+  if (( ! $#selected )); then
+    print -r -- "Nothing to reopen: no saved session with a closed tab matches ${(q-)want}. See: undead list"
+    return 1
+  fi
+  for file in $selected; do
+    rec=("${(@f)$(<$file)}")
+    undead_resume_command $file || { warn "skipping ${file:t}: unreadable record"; continue }
+    line="cd -- ${(q-)rec[3]} && ${(j: :)${(@q-)reply}}"
+    if open_tab_with $line; then
+      zf_rm -f $file
+      ok "Reopened $rec[1] session $rec[2]"
+    else
+      warn "Couldn't open a tab automatically. Run this in a new tab:"
+      print -r -- "    $line"
+    fi
+  done
+}
+
+open_tab_with() {
+  case $TERM_PROGRAM in
+    iTerm.app)
+      osascript - $1 >/dev/null <<'EOF'
+on run argv
+  tell application "iTerm2"
+    if (count of windows) is 0 then
+      set newWindow to (create window with default profile)
+      tell current session of newWindow to write text (item 1 of argv)
+    else
+      tell current window
+        set newTab to (create tab with default profile)
+        tell current session of newTab to write text (item 1 of argv)
+      end tell
+    end if
+  end tell
+end run
+EOF
+      ;;
+    Apple_Terminal)
+      osascript - $1 >/dev/null <<'EOF'
+on run argv
+  tell application "Terminal"
+    activate
+    do script (item 1 of argv)
+  end tell
+end run
+EOF
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_forget() {
+  local want=$1 file
+  local -a selected
+  [[ -n $want ]] || die "usage: undead forget N|SESSION_ID|--all"
+  select_records $want
+  (( $#selected )) || { print -r -- "No saved session matches ${(q-)want}. See: undead list"; return 1 }
+  local -a rec
+  for file in $selected; do
+    rec=("${(@f)$(<$file)}")
+    zf_rm -f $file
+    ok "Forgot $rec[1] session $rec[2]"
+  done
+}
+
+cmd_log() {
+  [[ -r $UNDEAD_STATE/log ]] || { print -r -- "No log yet."; return 0 }
+  [[ $1 == -f ]] && exec tail -n 20 -f $UNDEAD_STATE/log
+  tail -n 50 $UNDEAD_STATE/log
+}
+
+cmd_donate() {
+  local config=$UNDEAD_CONFIG/config
+  case $1 in
+    on|off)
+      zf_mkdir -p $UNDEAD_CONFIG
+      local -a lines=(${(f)"$(cat $config 2>/dev/null)"})
+      lines=(${lines:#donate=*} donate=$1)
+      print -rl -- $lines > $config
+      [[ $1 == off ]] && print -r -- "The support message is hidden. Thanks for trying undead!" ||
+        print -r -- "The support message will show now and then."
+      ;;
+    '')
+      undead_config donate && [[ $REPLY == off ]] && print -r -- "Support message: off" || print -r -- "Support message: on"
+      print -r -- "Support undead: $UNDEAD_REPO#support"
+      ;;
+    *) die "usage: undead donate [on|off]" ;;
+  esac
+}
+
+case $1 in
+  install) shift; cmd_install "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  doctor) cmd_doctor ;;
+  list|ls) cmd_list ;;
+  reopen) shift; cmd_reopen "$@" ;;
+  forget) shift; cmd_forget "$@" ;;
+  log) shift; cmd_log "$@" ;;
+  donate) shift; cmd_donate "$@" ;;
+  version|--version|-v) print -r -- "undead $UNDEAD_VERSION" ;;
+  ''|help|--help|-h) usage ;;
+  *) print -r -- "undead: unknown command: $1" >&2; usage >&2; exit 1 ;;
+esac

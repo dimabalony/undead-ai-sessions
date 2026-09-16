@@ -1,0 +1,12 @@
+#!/bin/zsh -f
+# Runs test/*_test.zsh, each in its own sandbox. Usage: test/run [name ...]
+cd ${0:A:h}
+local -a files=(*_test.zsh(N))
+(( $# )) && files=(${^@}_test.zsh)
+integer failed=0
+for file in $files; do
+  print -r -- "== ${file%_test.zsh}"
+  zsh -f $file || failed=1
+done
+(( failed )) && print -r -- "FAILED" || print -r -- "PASSED"
+exit $failed
