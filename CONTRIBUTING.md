@@ -131,9 +131,10 @@ end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for te
 
 ## Roadmap
 
-The planned work lives in [the issues](https://github.com/dimabalony/undead-ai-sessions/issues): a demo GIF at the top
-of the README (#1), `undead upgrade` so `curl | sh` installs update themselves (#2), VS Code and Cursor integrated
-terminals (#3), bash and fish (#4), tmux panes (#5), and Ghostty, WezTerm, Kitty and Warp (#6).
+The planned work lives in [the issues](https://github.com/dimabalony/undead-ai-sessions/issues): `undead upgrade`
+polish (#2), VS Code and Cursor integrated terminals (#3), bash and fish (#4), tmux panes (#5), Ghostty, WezTerm, Kitty
+and Warp (#6), and agent-team panes (#7, blocked on Claude Code). Security reports go through
+[private reporting](SECURITY.md), not the issues.
 
 Two ideas without an issue yet:
 
