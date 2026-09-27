@@ -116,7 +116,9 @@ off, so an update notice doesn't block the restored tab.
 
 undead forgets a session when you really close it: right away when you exit Claude, when you run another command in
 the tab, or 10 seconds after the agent exits if the tab is still open. When the terminal quits, the shell is killed
-before any of that happens, so the session is kept.
+before any of that happens, so the session is kept. An agent that exits with an error wasn't closed by you, so its
+session is kept too; when the error comes within seconds of a resume, undead starts the agent once more after a
+five-second pause.
 
 It doesn't poll, run a daemon, or type into a running agent. The one exception is `undead reopen`, which asks
 macOS for permission to open a new tab in your terminal and type the resume command there.
@@ -131,6 +133,13 @@ macOS must restore windows. In *System Settings › Desktop & Dock*, turn off *C
 application*. In iTerm2, *Settings › General › Startup › Window restoration policy* should be *Use System Window
 Restoration Setting*. `undead doctor` checks both. In Terminal.app only a normal quit counts: after a force quit or a
 crash it opens fresh windows instead of restoring them (iTerm2 restores either way).
+
+### My Codex tab came back with "account/read failed during TUI bootstrap"
+
+Codex checks your ChatGPT account before it draws anything and quits with this error when the check can't reach
+chatgpt.com, which is common in the first seconds after the laptop wakes. Your login is fine: a rejected login says
+`unauthorized (401)` instead. undead starts Codex again after five seconds. If that fails too, the session is kept:
+↑ then Enter retries. Versions before 0.3.6 forgot the session instead; `undead upgrade` fixes that.
 
 ### I closed a tab by mistake
 

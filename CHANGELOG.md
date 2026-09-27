@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.6
+
+- An agent that exits with an error is no longer treated as closed: its session is kept for the next restore, with a
+  hint to start it again. When the error comes within 30 seconds of a resume, the agent is started once more after
+  five seconds. Codex quits at startup when its account check can't reach chatgpt.com, as in the first seconds after
+  the laptop wakes, and blames the account (`account/read failed during TUI bootstrap … workspace routing discovery
+  failed (code -32603)`); every Codex tab of such a restore used to be forgotten. `UNDEAD_RETRY_DELAY` and
+  `UNDEAD_RETRY_WINDOW` tune it
+
 ## 0.3.5
 
 - The support message is held for ten seconds, and says so

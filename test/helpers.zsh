@@ -9,7 +9,8 @@ SANDBOX=${SANDBOX:A}
 unset TMUX ITERM_SESSION_ID TERM_SESSION_ID TERM_PROGRAM UNDEAD_DISABLE UNDEAD_NO_DONATE ZDOTDIR CODEX_HOME CLAUDECODE \
   CLAUDE_CODE_CHILD_SESSION CLAUDE_CONFIG_DIR
 export HOME=$SANDBOX/home
-export UNDEAD_STATE_DIR=$HOME/.local/state/undead UNDEAD_CONFIG_DIR=$HOME/.config/undead UNDEAD_FORGET_DELAY=1
+export UNDEAD_STATE_DIR=$HOME/.local/state/undead UNDEAD_CONFIG_DIR=$HOME/.config/undead UNDEAD_FORGET_DELAY=1 \
+  UNDEAD_RETRY_DELAY=0.3 UNDEAD_RETRY_WINDOW=1
 STATE=$UNDEAD_STATE_DIR
 mkdir -p $HOME $STATE/tabs $STATE/shells $SANDBOX/agents $SANDBOX/fake $SANDBOX/zdot $SANDBOX/work
 cleanup() { pkill -f "$SANDBOX" 2>/dev/null; rm -rf $SANDBOX }
@@ -82,7 +83,8 @@ tab_shell() {
     zsh -f -i -c "source $ROOT/lib/undead.zsh; cd $SANDBOX/work; $cmds; :"
 }
 
-# Fake agents for shell tests: log their arguments and directory, optionally act like the hook, then exit
+# Fake agents for shell tests: log their arguments and directory, optionally act like the hook, then exit.
+# FAKE_FAIL_ONCE=NAME makes the first call exit with 1 and the next ones succeed.
 for name in claude codex; do
   cat > $SANDBOX/fake/$name <<EOF
 #!/bin/zsh -f
@@ -90,6 +92,7 @@ print -r -- "$name \$* | \$PWD" >> $SANDBOX/calls
 [[ -n \$FAKE_TAB ]] && print \$PPID > $SANDBOX/pid.\$FAKE_TAB
 [[ -n \$FAKE_RECORD ]] && print -rl -- $name \$FAKE_RECORD \$PWD > \$UNDEAD_STATE_DIR/tabs/\$FAKE_TAB.tmp && mv -f \$UNDEAD_STATE_DIR/tabs/\$FAKE_TAB.tmp \$UNDEAD_STATE_DIR/tabs/\$FAKE_TAB
 [[ -n \$FAKE_STOP ]] && kill -TSTP \$\$
+[[ -n \$FAKE_FAIL_ONCE && ! -e $SANDBOX/failed.\$FAKE_FAIL_ONCE ]] && { : > $SANDBOX/failed.\$FAKE_FAIL_ONCE; exit 1 }
 sleep \${FAKE_SLEEP:-0}
 exit \${FAKE_EXIT:-0}
 EOF

@@ -153,6 +153,52 @@ sleep 2.5
 check "a new session started meanwhile survives the old session's forget timer" has $STATE/tabs/iterm2-F5 22222222
 wait
 
+print -r -- "Failed start"
+# The shells here are ended with a typed `exit`, which forgets the tab like any other command, so a kept record is
+# checked while the shell still waits at its prompt
+count_calls() { calls; REPLY=$(print -rl -- $REPLY | grep -c -- "$1") }
+reset_calls
+print -rl -- codex $CODEX_ID $W > $STATE/tabs/iterm2-S1
+pty_bg $SANDBOX/out "sleep 1; print; sleep 0.3; print; sleep 2; print exit" $(iterm S1) FAKE_EXIT=1
+sleep 2.5
+check "a resumed agent that fails at once is started again after a pause" eval 'count_calls "codex resume"; (( REPLY == 2 ))'
+check "  ...and says so" out_has "undead: codex exited with 1 right after starting (network not up yet?): trying again in 0.3s"
+check "  ...and when it fails again, its session is kept" test -f $STATE/tabs/iterm2-S1
+check "  ...and says so" \
+  out_has "undead: codex exited with 1, so its session is kept for the next restore. Start it again now: ↑ then Enter"
+check "  ...once, not at every prompt" eval '(( $(grep -c "kept for the next restore" $SANDBOX/out) == 1 ))'
+check "  ...and logs both" eval 'logged "codex in tab iterm2-S1 exited with 1 0.0s after resuming, trying again in 0.3s" &&
+  logged "kept tab iterm2-S1: codex exited with 1"'
+wait
+
+reset_calls
+print -rl -- codex $CODEX_ID $W --yolo > $STATE/tabs/iterm2-S2
+pty_shell $SANDBOX/out "sleep 3" $(iterm S2) FAKE_FAIL_ONCE=S2
+check "a second try that works is a normal resume, flags included" \
+  eval 'count_calls "codex resume $CODEX_ID -c check_for_update_on_startup=false --yolo | $W"; (( REPLY == 2 ))'
+check "  ...so the session is forgotten when that agent exits while the tab stays open" missing $STATE/tabs/iterm2-S2
+
+reset_calls
+print -rl -- claude $CLAUDE_ID $W > $STATE/tabs/iterm2-S3
+pty_bg $SANDBOX/out "sleep 3.5; print exit" $(iterm S3) FAKE_EXIT=1 FAKE_SLEEP=1.5
+sleep 3
+check "an agent that fails after running for a while isn't started again" eval 'count_calls "claude --resume"; (( REPLY == 1 ))'
+check "  ...but its session is kept" test -f $STATE/tabs/iterm2-S3
+check "  ...and says so" out_has "undead: claude exited with 1, so its session is kept for the next restore"
+wait
+
+reset_calls
+print -rl -- claude $CLAUDE_ID $W > $STATE/tabs/iterm2-S4
+pty_shell $SANDBOX/out "sleep 3" $(iterm S4) FAKE_EXIT=130
+check "an agent interrupted with Ctrl+C is closed for good, as before" missing $STATE/tabs/iterm2-S4
+check "  ...without a second try" eval 'count_calls "claude --resume"; (( REPLY == 1 ))'
+
+pty_bg $SANDBOX/out "print 'FAKE_RECORD=$CLAUDE_ID FAKE_TAB=iterm2-S5 FAKE_EXIT=1 claude'; sleep 2.5; print exit" $(iterm S5)
+sleep 2
+check "an agent you started yourself that fails is kept too" test -f $STATE/tabs/iterm2-S5
+check "  ...and logged" logged "kept tab iterm2-S5: claude exited with 1"
+wait
+
 print -r -- "Support message"
 reset_calls
 print -rl -- 2 1 > $STATE/restores

@@ -31,6 +31,12 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   otherwise a detached timer forgets 10 s later, but only if the shell is still alive and the record's inode is
   unchanged. Codex's `SessionEnd` reason is hardcoded to `"other"` in 0.154, so it relies on the timer.
 - **Only suspended jobs block forgetting**, not any background job (`${#jobstates}` counts running jobs too).
+- **A failure exit is not a close.** Every deliberate close exits with 0 and a kill by signal reports 128+n, so a
+  status of 1–127 means the agent failed, and the record is kept with a hint to start it again. When the failure
+  comes within `UNDEAD_RETRY_WINDOW` (30 s) of a resume undead started, the agent never got going and is started once
+  more after `UNDEAD_RETRY_DELAY` (5 s). This came from a restore 28 s after a laptop woke: every Codex tab died at
+  its account check with an error blaming the account, and every one was forgotten. A crash later in the session is
+  kept but not restarted, so its error stays on screen.
 - **Replay flags from the command line**, captured in `preexec`, filtered through an allowlist, and validated again when
   resuming. Values containing spaces after a multi-value flag are dropped, so a prompt is never re-submitted.
 - **No daemon, no polling, no AppleScript typing** (except `undead reopen`, which you run yourself).
@@ -89,6 +95,12 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   CLAUDE_CODE_CHILD_SESSION marker" and writes no transcript (measured). Claude sets it, with `CLAUDECODE`, in every
   process it starts. A terminal app that inherited it gives it to every tab's shell: observed once with Terminal.app,
   the inheritance path not reproduced.
+- Exit status of a deliberate close, measured in a pty: Claude Code 2.1 `/exit` 0, Ctrl+C twice 0; Codex 0.156.1
+  `/quit` 0, Ctrl+D 0 (Ctrl+C twice didn't quit Codex in the pty at all). Codex 0.156.1 that can't reach chatgpt.com
+  at startup exits with 1 after `Error: account/read failed during TUI bootstrap: account/read failed: workspace
+  routing discovery failed (code -32603)` (reproduced with `chatgpt_base_url` pointing at a closed port). The binary
+  carries separate `workspace routing discovery unauthorized (401)` and `… timed out` messages, so a plain `failed`
+  is a connection error, not a login problem.
 - Codex 0.154 `codex resume <id>` for an id with no rollout prints "ERROR: No saved session found with ID <id>. Run
   `codex resume` without an ID to choose from existing sessions." and exits 1, without creating a session (measured
   with a made-up id).
@@ -113,7 +125,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 90 s, 278 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 100 s, 293 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead

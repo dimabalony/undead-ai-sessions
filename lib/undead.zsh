@@ -13,6 +13,8 @@ typeset -g _undead_tab=$UNDEAD_STATE/tabs/$REPLY
 typeset -g _undead_pending= _undead_scheduled= _undead_active= _undead_marker=
 typeset -g UNDEAD_FORGET_DELAY=${UNDEAD_FORGET_DELAY:-10}
 typeset -g UNDEAD_SUPPORT_PAUSE=${UNDEAD_SUPPORT_PAUSE:-10}
+typeset -g UNDEAD_RETRY_DELAY=${UNDEAD_RETRY_DELAY:-5}
+typeset -g UNDEAD_RETRY_WINDOW=${UNDEAD_RETRY_WINDOW:-30}
 
 () {
   emulate -L zsh
@@ -54,11 +56,22 @@ _undead_precmd() {
   local -a suspended=(${(M)${(v)jobstates}:#suspended*})
   (( st == 129 || st == 137 || st == 143 || ${#suspended} )) && return 0
 
-  # When the terminal quits, the agent can exit before this shell is killed, so the session is forgotten only if the
-  # shell is still alive a bit later and no new session has replaced the record in the meantime
+  # Every prompt after the exit sees the same status, so each record is dealt with once
   local tab=$_undead_tab inode=$(zstat +inode $_undead_tab 2>/dev/null)
   [[ $_undead_scheduled == $inode ]] && return 0
   _undead_scheduled=$inode
+  # An agent that failed wasn't closed by the user, so its session is kept. A deliberate close exits with 0 (measured:
+  # Claude /exit and Ctrl+C twice, Codex /quit and Ctrl+D), and a Claude /exit has already forgotten the record
+  # through the SessionEnd hook by the time this runs.
+  if (( st > 0 && st < 128 )); then
+    local -a rec=("${(@f)$(<$tab)}")
+    print -r -- $'\e[33m'"undead: $rec[1] exited with $st, so its session is kept for the next restore." \
+      "Start it again now: ↑ then Enter"$'\e[0m'
+    undead_log "zsh[$$] kept tab $_undead_id: $rec[1] exited with $st"
+    return 0
+  fi
+  # When the terminal quits, the agent can exit before this shell is killed, so the session is forgotten only if the
+  # shell is still alive a bit later and no new session has replaced the record in the meantime
   undead_log "zsh[$$] agent in tab $_undead_id exited with $st, forgetting it in ${UNDEAD_FORGET_DELAY}s if the tab stays open"
   {
     sleep $UNDEAD_FORGET_DELAY
@@ -101,8 +114,21 @@ _undead_resume() {
   print -rs -- "${(j: :)${(@q-)cmd}}"
   # The hook reads the flags to replay from here, exactly as for a typed command
   print -r -- "${(j: :)${(@q-)cmd}}" > $UNDEAD_STATE/shells/$$.cmd
+  local -F start=$EPOCHREALTIME
   $cmd
   REPLY=$?
+  # An agent that fails within seconds never got going: Codex quits at startup when its account check can't reach
+  # chatgpt.com, as in the first seconds after the laptop wakes, and blames the account whatever the cause. One more
+  # try after a pause is usually all it needs; if that fails too, the prompt above keeps the session.
+  local -F1 took=$(( EPOCHREALTIME - start ))
+  if (( REPLY > 0 && REPLY < 128 && took < UNDEAD_RETRY_WINDOW )); then
+    print -r -- $'\e[33m'"undead: $rec[1] exited with $REPLY right after starting (network not up yet?):" \
+      "trying again in ${UNDEAD_RETRY_DELAY}s"$'\e[0m'
+    undead_log "zsh[$$] $rec[1] in tab $_undead_id exited with $REPLY ${took}s after resuming, trying again in ${UNDEAD_RETRY_DELAY}s"
+    sleep $UNDEAD_RETRY_DELAY
+    $cmd
+    REPLY=$?
+  fi
 }
 
 # An occasional one-line support message, shown in one tab per restore at the 3rd, 10th, 25th, 50th restore and then
