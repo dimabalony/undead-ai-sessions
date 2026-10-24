@@ -21,7 +21,7 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - **Match by process tree, not env vars.** Codex scrubs the environment before running hooks (`env_clear()` plus
   `shell_environment_policy`), so a hook can't read `ITERM_SESSION_ID`. macOS also blocks reading another process's
   environment. Hence the pid-file registry.
-- **Ignore agents that aren't the tab's own session:** nested `claude -p` started by another agent, tmux panes, Codex's
+- **Ignore agents that aren't the tab's own session:** nested `claude -p` started by another agent, Codex's
   internal sessions (its rollout header's `source` is not `"cli"`), and apps that inherited a tab id (VS Code's
   terminal). Otherwise they overwrite the tab's real session.
 - **Forgetting is the hard part.** The first version deleted the record as soon as the agent exited. On ⌘Q the agent
@@ -37,6 +37,18 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   more after `UNDEAD_RETRY_DELAY` (5 s). This came from a restore 28 s after a laptop woke: every Codex tab died at
   its account check with an error blaming the account, and every one was forgotten. A crash later in the session is
   kept but not restarted, so its error stays on screen.
+- **tmux panes are named after their server.** A pane id (`%N`) is reused by the next server, so a pane is
+  `tmux-<server start_time>-<server pid>-<N>`, and `state/tmux/<that>` says where it was (socket, session, window
+  index and name, pane index). tmux sets `TERM_PROGRAM=tmux` (3.2+); a process that only inherited `TMUX` doesn't, and
+  the pane's tty must be the shell's. Restore is driven by the shell, not a tmux hook, so it needs no config: the first
+  shell in a session of a new server on the same socket opens that session's recorded panes (`new-window -e
+  UNDEAD_TMUX_RESTORED=1`), and moves each record to its new pane under `state/tmux.lock`; the new pane's shell waits
+  for the lock and resumes its record like a restored tab. A session's sole pane takes the record that had its window
+  index, in place. Records of the running server are never restored: their pane is open, or the user closed it.
+- **A tmux pane closed while its server runs stays closed.** The pane's shell exits on a hangup either way; in
+  `zshexit` it asks the server for `list-sessions`. A server that is stopping (SIGTERM at logout, `kill-server`) has
+  destroyed every session before any pane's shell runs, so the call fails, and the record waits for the next server.
+  When it succeeds, the user closed the pane, and the record is marked `closed`.
 - **Replay flags from the command line**, captured in `preexec`, filtered through an allowlist, and validated again when
   resuming. Values containing spaces after a multi-value flag are dropped, so a prompt is never re-submitted.
 - **No daemon, no polling, no AppleScript typing** (except `undead reopen`, which you run yourself).
@@ -107,6 +119,13 @@ CI runs the same suite on `macos-latest` for every push and pull request.
 - `ps -o comm=` shows an interactive Claude Code as `claude`, but an agent-team member it started as its
   `~/.local/share/claude/versions/<version>` binary; the native Codex binary shows as `codex` under a `node` launcher.
 
+- tmux 3.6: inside a pane `TERM_PROGRAM=tmux`, `TMUX=<socket>,<server pid>,<session>`, `TMUX_PANE=%N`; pane ids start at
+  `%0` in each server. `zshexit` runs when a pane's shell gets the hangup from `kill-pane` and from `kill-server` or a
+  SIGTERM to the server, also with an agent in the foreground; `list-sessions` from there succeeds after `kill-pane`
+  and says "no server running" after the other two (measured).
+- zsh started under a name beginning with `c` (a `claude` or `codex` symlink to zsh) emulates csh, `nounset`
+  included; stand-in agent scripts start with `emulate -R zsh`.
+
 ## Layout
 
 ```
@@ -115,17 +134,17 @@ lib/undead.zsh     shell integration (sourced from ~/.zshrc)
 lib/hook           SessionStart/SessionEnd hook for both agents
 lib/common.zsh     shared helpers: tab id, flag allowlist, resume command, log
 lib/json-hooks.js  edits settings.json / hooks.json (macOS JavaScript, follows symlinks)
-test/              7 suites, sandboxed HOME, fake agents, real pseudo-terminals
+test/              8 suites, sandboxed HOME, fake agents, real pseudo-terminals
 install.sh         copies into ~/.local/share/undead and runs `undead install`
 plugin/            Claude Code plugin: manifest, /undead command, nudge hook; the marketplace at the root points at it
 ```
 
-State: `~/.local/state/undead/{tabs,shells,log,restores,backups}`. A record is 3+ lines: tool, session id, cwd, then
+State: `~/.local/state/undead/{tabs,shells,tmux,log,restores,backups}`. A record is 3+ lines: tool, session id, cwd, then
 one flag per line.
 
 ## Tests
 
-`test/run` (about 100 s, 293 checks) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 3 min, 328 checks; the tmux suite needs tmux and skips without it) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead
@@ -144,7 +163,7 @@ end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for te
 ## Roadmap
 
 The planned work lives in [the issues](https://github.com/dimabalony/undead-ai-sessions/issues): VS Code and Cursor
-integrated terminals (#3), bash and fish (#4), tmux panes (#5), Ghostty, WezTerm, Kitty
+integrated terminals (#3), bash and fish (#4), Ghostty, WezTerm, Kitty
 and Warp (#6), and agent-team panes (#7, blocked on Claude Code). Security reports go through
 [private reporting](SECURITY.md), not the issues.
 

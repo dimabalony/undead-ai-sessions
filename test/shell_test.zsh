@@ -238,8 +238,8 @@ check "  ...and keeps the shell's own precmd hook" out_has THEME-HOOK-RAN
 
 print -r -- "Not active"
 rm -f $STATE/shells/<->(N)
-pty_shell $SANDBOX/out "sleep 0.5" $(iterm T1) TMUX=/tmp/tmux-1/default
-check "shells inside tmux don't register" test -z "$(print $STATE/shells/<->(N))"
+pty_shell $SANDBOX/out "sleep 0.5" $(iterm T1) TMUX=$SANDBOX/no-tmux,1,0
+check "shells in a tmux older than 3.2 (no TERM_PROGRAM=tmux) don't register" test -z "$(print $STATE/shells/<->(N))"
 pty_shell $SANDBOX/out "sleep 0.5" TERM_PROGRAM=WarpTerminal
 check "unsupported terminals don't register" test -z "$(print $STATE/shells/<->(N))"
 

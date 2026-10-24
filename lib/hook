@@ -19,7 +19,8 @@ sid=$(json session_id)
 [[ -n $sid ]] || { log "skip: no session_id"; exit 0 }
 
 # Climb from the hook to the agent process, then past it (and Codex's node launcher) to the shell that started it.
-# Agents started by other agents, by tmux or by scripts end up at a shell that never registered, so they are ignored.
+# Agents started by other agents or by scripts end up at a shell that never registered, so they are ignored. A shell in
+# a tmux pane registers under the pane, so its agent is recorded for the pane, not for the terminal tab around tmux.
 proc() { read -r ppid comm <<<"$(ps -o ppid=,comm= -p $1 2>/dev/null)" }
 pid=$PPID
 for i in {1..4}; do

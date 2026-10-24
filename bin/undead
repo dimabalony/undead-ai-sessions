@@ -34,7 +34,7 @@ Usage: undead <command>
   upgrade [--check]        Update undead itself to the latest release
   doctor                   Check that restores will work on this Mac
   list                     Saved sessions, and whether their tab is still open
-  reopen [N|ID|--all]      Resume a session whose tab is gone in a new tab
+  reopen [N|ID|--all]      Resume a session whose tab is gone in a new tab (or tmux pane)
   forget [N|ID|--all]      Drop saved sessions
   log [-f]                 Show (or follow) the log
   donate [on|off]          Show or hide the occasional support message
@@ -208,7 +208,8 @@ adopt_run() {
 
     undead_env_of $pid ||
       { adopt_stuck "can't read the environment of $tool[$pid]" "$tool on $tty: can't read its environment"; continue }
-    # tmux and terminals without a restorable tab id are skipped here for the same reason the shell skips them
+    undead_env[TTY]=/dev/$tty
+    # Terminals without a restorable tab id are skipped here for the same reason the shell skips them
     undead_tab_id ||
       { adopt_log "skip: $tool[$pid] runs in ${undead_env[TERM_PROGRAM]:-an unsupported terminal}${undead_env[TMUX]:+ inside tmux}"; continue }
     id=$REPLY
@@ -247,6 +248,7 @@ adopt_run() {
     else
       tmp=$UNDEAD_STATE/tabs/.tmp.$$
       print -rl -- $tool $sid $cwd "${(@)args}" > $tmp && zf_mv -f $tmp $UNDEAD_STATE/tabs/$id || continue
+      [[ $id == tmux-* ]] && undead_tmux_note $id
       # So a later /exit in that tab is forgotten, and a new agent started there is recorded
       print -rl -- $id "$(ps -o lstart= -p $shell)" > $UNDEAD_STATE/shells/$shell
       adopt_log "adopted $sid for tab $id in $cwd${args:+ with ${(j: :)${(@q-)args}}}"
@@ -423,14 +425,16 @@ cmd_doctor() {
   local problems=0 value found hooks_file line
   print -r -- "${c_bold}Terminal${c_off}"
   if undead_terminal_id; then
-    case $TERM_PROGRAM in
-      iTerm.app) ok "iTerm2 tab ${REPLY#iterm2-}" ;;
-      Apple_Terminal) ok "Terminal.app tab ${REPLY#terminal-}" ;;
+    case $REPLY in
+      iterm2-*) ok "iTerm2 tab ${REPLY#iterm2-}" ;;
+      terminal-*) ok "Terminal.app tab ${REPLY#terminal-}" ;;
+      tmux-*) ok "tmux pane $undead_tmux[session]:$undead_tmux[window].$undead_tmux[pane]" ;;
     esac
     tab_shell_registered && ok "This tab's shell is registered" ||
       warn "This tab's shell started before undead was installed (or isn't zsh): open a new tab, or run undead adopt for an agent already running here"
+    [[ $REPLY == tmux-* ]] && doctor_tmux
   elif [[ -n $TMUX ]]; then
-    warn "Inside tmux: tabs in tmux are not restored by undead"
+    warn "Inside tmux, but this pane isn't supported: undead needs tmux 3.2 or later (this one: $(tmux -V 2>/dev/null))"
   else
     warn "This terminal (${TERM_PROGRAM:-unknown}) isn't supported. Supported: iTerm2, Terminal.app"
   fi
@@ -493,8 +497,8 @@ cmd_doctor() {
   fi
 
   print -r -- "${c_bold}Saved sessions${c_off}"
-  local -a tabs=($UNDEAD_STATE/tabs/*(N))
-  ok "${#tabs} saved, state in ${UNDEAD_STATE/#$HOME/~}"
+  local -a tabs=($UNDEAD_STATE/tabs/*(N)) panes=($UNDEAD_STATE/tabs/tmux-*(N))
+  ok "${#tabs} saved${panes:+ (${#panes} in tmux panes)}, state in ${UNDEAD_STATE/#$HOME/~}"
   if [[ -r $UNDEAD_STATE/log ]]; then
     dim "last log lines:"
     for line in "${(@f)$(tail -n 3 $UNDEAD_STATE/log)}"; do dim "  $line"; done
@@ -504,6 +508,29 @@ cmd_doctor() {
   (( problems )) && print -r -- "${c_fail}Some checks failed${c_off}, see above." || print -r -- "${c_ok}All good.${c_off}"
   print -r -- "${c_dim}undead is free. If it saves you time, star it or support it: $UNDEAD_REPO${c_off}"
   return $problems
+}
+
+# tmux restores panes through the shell, so the shell tmux starts in a new pane has to be zsh with undead loaded
+doctor_tmux() {
+  local tmux version shell command
+  undead_tmux_bin || return 0
+  tmux="$REPLY -S $undead_tmux[socket]"
+  version=$(${=tmux} -V 2>/dev/null)
+  autoload -Uz is-at-least
+  if is-at-least 3.2 ${${version#tmux }%%[a-z]#}; then
+    ok "$version"
+  else
+    fail "$version: undead needs tmux 3.2 or later"
+  fi
+  shell=$(${=tmux} show-options -gv default-shell 2>/dev/null)
+  command=$(${=tmux} show-options -gv default-command 2>/dev/null)
+  if [[ -n $command && $command != *zsh* ]]; then
+    warn "New tmux panes run \"$command\" instead of zsh, so their panes can't be restored"
+  elif [[ -z $command && ${shell:t} != zsh ]]; then
+    warn "New tmux panes start ${shell:-a shell other than zsh}, so their panes can't be restored (set-option -g default-shell /bin/zsh)"
+  else
+    ok "Restored when tmux starts again: the first shell of each session reopens that session's agent panes"
+  fi
 }
 
 check_hooks() {
@@ -540,6 +567,10 @@ describe() {
   elif (( age < 86400 )); then age="$(( age / 3600 ))h"
   else age="$(( age / 86400 ))d"; fi
   REPLY="$(printf '%-7s %-37s %-7s %-4s %s' $rec[1] $rec[2] $tab_state $age ${rec[3]/#$HOME/~})"
+  if [[ ${file:t} == tmux-* && -r $UNDEAD_STATE/tmux/${file:t} ]]; then
+    local -a side=("${(@f)$(<$UNDEAD_STATE/tmux/${file:t})}")
+    REPLY+="  (tmux $side[4]:$side[5])"
+  fi
 }
 
 cmd_list() {
@@ -580,6 +611,18 @@ cmd_reopen() {
   for file in $selected; do
     rec=("${(@f)$(<$file)}")
     undead_resume_command $file || { warn "skipping ${file:t}: unreadable record"; continue }
+    # A tmux pane goes back into its tmux session, which is started when it isn't running
+    if [[ ${file:t} == tmux-* && -r $UNDEAD_STATE/tmux/${file:t} ]]; then
+      local -a side=("${(@f)$(<$UNDEAD_STATE/tmux/${file:t})}")
+      undead_tmux_windows=()
+      if undead_tmux_lock && undead_tmux_place ${file:t}; then
+        ok "Reopened $rec[1] session $rec[2] in tmux session $side[4]"
+      else
+        warn "Couldn't open a pane in tmux session $side[4]"
+      fi
+      undead_tmux_unlock
+      continue
+    fi
     line="cd -- ${(q-)rec[3]} && ${(j: :)${(@q-)reply}}"
     if [[ -n $undead_resume_fresh ]]; then
       opened="Started $rec[1] fresh in ${rec[3]/#$HOME/~}: session $rec[2] was never saved, so it can't be resumed"
@@ -641,7 +684,7 @@ cmd_forget() {
   local -a rec
   for file in $selected; do
     rec=("${(@f)$(<$file)}")
-    zf_rm -f $file
+    zf_rm -f $file $UNDEAD_STATE/tmux/${file:t}
     ok "Forgot $rec[1] session $rec[2]"
   done
 }

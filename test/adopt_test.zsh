@@ -101,7 +101,7 @@ agent_env $PID_A "$(iterm $A)"
 agent_env $PID_N "$(iterm $N)"
 agent_env $PID_T "$(term $T)"
 agent_env $PID_V "TERM_PROGRAM=vscode ITERM_SESSION_ID=w0t0p0:$V"
-agent_env $PID_M "$(iterm $M) TMUX=/tmp/tmux-501/default,1,0"
+agent_env $PID_M "$(iterm $M) TMUX=$SANDBOX/no-tmux,1,0"
 read -r PID_C1 tty < $SANDBOX/agent.c1; agent_env $PID_C1 "$(iterm $C1)"
 read -r PID_C2 tty < $SANDBOX/agent.c2; agent_env $PID_C2 "$(iterm $C2)"
 read -r PID_C3 tty < $SANDBOX/agent.c3; agent_env $PID_C3 "$(iterm $C3)"
@@ -119,7 +119,7 @@ print -r -- "tab ids"
 check "an iTerm2 tab or split pane" tab_is iterm2-$A TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:$A
 check "a Terminal.app tab" tab_is terminal-$T TERM_PROGRAM=Apple_Terminal TERM_SESSION_ID=w0t0p0:$T
 check "VS Code's terminal only inherited its id" tab_is - TERM_PROGRAM=vscode ITERM_SESSION_ID=w0t0p0:$V
-check "a pane inside tmux is not a tab" tab_is - TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:$A TMUX=/tmp/tmux-501/default,1,0
+check "a pane of a tmux older than 3.2, with the outer terminal's TERM_PROGRAM, is not a tab" tab_is - TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:$A TMUX=$SANDBOX/no-tmux,1,0
 check "an id that isn't a plain name is rejected" tab_is - TERM_PROGRAM=iTerm.app 'ITERM_SESSION_ID=w0t0p0:../../etc'
 check "the shell reaches the same answer from its own environment" \
   eval 'TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:$A undead_terminal_id && [[ $REPLY == iterm2-$A ]]'
@@ -174,7 +174,7 @@ check "a claude started by another claude" missing $STATE/tabs/iterm2-$N
 check "...and the log says why" logged "not a tab shell"
 check "VS Code's terminal, whose tab id it only inherited" missing $STATE/tabs/iterm2-$V
 check "...and the log says which terminal" logged "runs in vscode"
-check "an agent inside tmux" missing $STATE/tabs/iterm2-$M
+check "an agent in a tmux older than 3.2" missing $STATE/tabs/iterm2-$M
 check "...and the log says so" logged "inside tmux"
 
 print -r -- "what it refuses to guess"

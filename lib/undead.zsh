@@ -1,20 +1,76 @@
 # undead: brings Claude Code / Codex sessions back in terminal tabs restored after quitting the terminal or rebooting.
-# Sourced from ~/.zshrc by `undead install`. Supported terminals: iTerm2 (tabs and split panes) and Terminal.app.
+# Sourced from ~/.zshrc by `undead install`. Supported terminals: iTerm2 (tabs and split panes), Terminal.app, and tmux
+# panes in any terminal.
 #
 # The terminal gives every tab an id and restores it with the tab. This file registers the tab's shell, lib/hook records
 # which agent session runs in it, and when the terminal restores the tab this file resumes that session in place.
+# tmux restores nothing, so the first shell of a tmux session opens that session's panes again (see common.zsh).
 
 [[ -o interactive && -z $UNDEAD_DISABLE ]] || return 0
 source "${${(%):-%x}:A:h}/common.zsh" || return 0
+# Set by undead_tmux_place for the shell of a pane it opened; nothing this shell starts should inherit it
+typeset -g _undead_tmux_restored=$UNDEAD_TMUX_RESTORED
+unset UNDEAD_TMUX_RESTORED
 undead_terminal_id || return 0
 
 typeset -g _undead_id=$REPLY
+# Where this shell's tmux pane is, kept apart from undead_tmux, which every tmux query overwrites
+typeset -gA _undead_pane
 typeset -g _undead_tab=$UNDEAD_STATE/tabs/$REPLY
 typeset -g _undead_pending= _undead_scheduled= _undead_active= _undead_marker=
 typeset -g UNDEAD_FORGET_DELAY=${UNDEAD_FORGET_DELAY:-10}
 typeset -g UNDEAD_SUPPORT_PAUSE=${UNDEAD_SUPPORT_PAUSE:-10}
 typeset -g UNDEAD_RETRY_DELAY=${UNDEAD_RETRY_DELAY:-5}
 typeset -g UNDEAD_RETRY_WINDOW=${UNDEAD_RETRY_WINDOW:-30}
+
+# A tmux shell notes where its pane is, so the pane can be opened again after its server stops. A shell in a pane that
+# undead_tmux_place opened waits until that has moved the record here. When panes of a server that stopped are on
+# record, the first shell of a session in the new server opens that session's panes again.
+_undead_tmux_start() {
+  emulate -L zsh
+  local -a others
+  _undead_pane=("${(@kv)undead_tmux}")
+  undead_tmux_note $_undead_id
+  others=($UNDEAD_STATE/tmux/tmux-*(N))
+  others=(${others:#*/tmux-$_undead_pane[start]-$_undead_pane[pid]-*})
+  (( $#others )) || [[ -n $_undead_tmux_restored ]] || return 0
+  undead_tmux_lock || return 0
+  (( $#others )) && _undead_tmux_restore
+  undead_tmux_unlock
+}
+
+_undead_tmux_restore() {
+  emulate -L zsh
+  local f id slot
+  local -a side todo
+  undead_tmux_windows=()
+  for f in $UNDEAD_STATE/tmux/tmux-*(N); do
+    id=${f:t}
+    [[ $id == $_undead_id ]] && continue
+    side=("${(@f)$(<$f)}")
+    # Panes of this server are open, or the user closed them. Another server on this socket has stopped: a socket
+    # has one server at a time. Servers on other sockets get their own panes back.
+    [[ $side[1] == $_undead_pane[socket] && "$side[2] $side[3]" != "$_undead_pane[pid] $_undead_pane[start]" ]] || continue
+    [[ -e $UNDEAD_STATE/tabs/$id ]] || { zf_rm -f $f; continue }
+    [[ $side[9] == closed || $side[4] != $_undead_pane[session] ]] && continue
+    todo+=("${(l:6::0:)side[5]} ${(l:6::0:)side[8]} $id")
+  done
+  for f in ${(o)todo}; do
+    id=${f##* }
+    side=("${(@f)$(<$UNDEAD_STATE/tmux/$id)}")
+    slot=$side[1]:$side[4]:$side[5]
+    # A session that tmux has just created, with this shell as its only pane, gets the pane that had its place
+    if [[ -z $_undead_pending && ! -e $_undead_tab && -z $undead_tmux_windows[$slot] && $side[5] == $_undead_pane[window] ]] &&
+       (( _undead_pane[windows] == 1 && _undead_pane[panes] == 1 )); then
+      zf_mv -f $UNDEAD_STATE/tabs/$id $_undead_tab && zf_rm -f $UNDEAD_STATE/tmux/$id || continue
+      undead_tmux_windows[$slot]=$_undead_pane[window_id]
+      _undead_pending=1
+      undead_log "tmux[$$] restoring ${${(f)"$(<$_undead_tab)"}[2]} of $side[4]:$side[5] in this pane: $id -> $_undead_id"
+    else
+      undead_tmux_place $id
+    fi
+  done
+}
 
 () {
   emulate -L zsh
@@ -24,10 +80,11 @@ typeset -g UNDEAD_RETRY_WINDOW=${UNDEAD_RETRY_WINDOW:-30}
     kill -0 ${f:t} 2>/dev/null || zf_rm -f $f $f.cmd
   done
   # Tabs closed while an agent was running never come back
-  for f in $UNDEAD_STATE/tabs/*(N.m+30); do
+  for f in $UNDEAD_STATE/tabs/*(N.m+30) $UNDEAD_STATE/tmux/tmux-*(N.m+30); do
     zf_rm -f $f
   done
   print -rl -- $_undead_id "$(ps -o lstart= -p $$)" > $UNDEAD_STATE/shells/$$
+  [[ $_undead_id == tmux-* ]] && _undead_tmux_start
   # Another live shell for this tab (e.g. a nested zsh) already owns the session
   [[ -r $_undead_tab ]] && ! undead_live_shell_for $_undead_id && _undead_pending=1
   # Claude Code marks every process it starts, and a Claude session that inherits the mark saves no transcript. Under
@@ -171,12 +228,27 @@ _undead_preexec() {
   fi
   if [[ $3 == *(claude|codex)* ]]; then
     print -r -- $3 > $UNDEAD_STATE/shells/$$.cmd
+    # The pane may have moved since the shell started; the hook records the agent under it right after this
+    [[ $_undead_id == tmux-* ]] && undead_tmux_query $_undead_pane[socket] $_undead_pane[id] && undead_tmux_note $_undead_id
   else
     zf_rm -f $UNDEAD_STATE/shells/$$.cmd
   fi
 }
 
-_undead_zshexit() { zf_rm -f $UNDEAD_STATE/shells/$$ $UNDEAD_STATE/shells/$$.cmd }
+_undead_zshexit() {
+  emulate -L zsh
+  zf_rm -f $UNDEAD_STATE/shells/$$ $UNDEAD_STATE/shells/$$.cmd
+  [[ $_undead_id == tmux-* ]] || return 0
+  undead_live_shell_for $_undead_id && return 0
+  local side=$UNDEAD_STATE/tmux/$_undead_id
+  [[ -e $_undead_tab ]] || { zf_rm -f $side; return 0 }
+  # A pane that closes while its server still has sessions was closed by the user (kill-pane, kill-window,
+  # kill-session), and like a terminal tab closed with ⌘W it doesn't come back by itself. A server that stops
+  # (reboot, logout, kill-server) has destroyed every session by the time its panes' shells get the hangup.
+  undead_tmux_bin && $REPLY -S $_undead_pane[socket] list-sessions >/dev/null 2>&1 || return 0
+  [[ -e $side ]] && print -r -- closed >> $side
+  undead_log "zsh[$$] kept tab $_undead_id: its tmux pane was closed while tmux kept running, so it stays closed"
+}
 
 # Last in line, so a prompt theme has finished drawing before a resume prints anything. Every precmd function sees the
 # same $?, so the order doesn't affect the exit status we read.

@@ -9,5 +9,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install tmux
+        run: command -v tmux || brew install tmux
       - name: Run tests
         run: zsh test/run

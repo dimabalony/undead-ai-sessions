@@ -30,9 +30,9 @@ check "  ...because of their rollout source" logged "dddd-4 source is dictionary
 tab_shell A5 "(sleep 1.5; cp $SANDBOX/cli.jsonl $SANDBOX/late.jsonl) & codex -f $EMIT codex start $(hook_json eeee-5 $W $SANDBOX/late.jsonl)"
 check "codex is recorded once its rollout file appears" wait_until 6 test -f $STATE/tabs/iterm2-A5
 
-tab_shell A6 "claude -f $EMIT claude start $(hook_json ffff-6 $W)" TMUX=/tmp/tmux-1/default
-check "agents inside tmux are ignored" missing $STATE/tabs/iterm2-A6
-check "  ...because tmux shells never register" logged "ffff-6 was not started from a terminal tab shell"
+tab_shell A6 "claude -f $EMIT claude start $(hook_json ffff-6 $W)" TMUX=$SANDBOX/no-tmux,1,0
+check "agents in a tmux older than 3.2 (no TERM_PROGRAM=tmux) are ignored" missing $STATE/tabs/iterm2-A6
+check "  ...because their shells never register" logged "ffff-6 was not started from a terminal tab shell"
 
 tab_shell A7 "print -rl -- iterm2-A7 'Mon Jan  1 00:00:00 2024' > \$UNDEAD_STATE_DIR/shells/\$\$; claude -f $EMIT claude start $(hook_json aaaa-7 $W)"
 check "a stale registration (reused pid) is ignored" missing $STATE/tabs/iterm2-A7

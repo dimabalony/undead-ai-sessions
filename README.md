@@ -21,8 +21,10 @@ guessing. It should feel like you never quit.
 
 - **Every restored tab resumes its own session**, in its folder, with the flags you started it with.
 - **Claude Code and Codex**, side by side in the same terminal.
-- **iTerm2 tabs and split panes, and Terminal.app.**
-- **No daemon, no polling, no typing into a running agent**, and no dependencies beyond macOS itself.
+- **iTerm2 tabs and split panes, Terminal.app, and tmux panes.** tmux panes come back in their session and window
+  when tmux starts again, in any terminal.
+- **No daemon, no polling, no typing into a running agent**, and no dependencies beyond macOS itself (and tmux 3.2+,
+  if you use tmux).
 - **Works for the sessions already running when you install it**, without restarting a single tab.
 - **Never adds a flag you didn't use.** A session you closed stays closed; one killed by quitting the terminal comes
   back.
@@ -120,6 +122,19 @@ before any of that happens, so the session is kept. An agent that exits with an 
 session is kept too; when the error comes within seconds of a resume, undead starts the agent once more after a
 five-second pause.
 
+### tmux
+
+tmux restores nothing after a reboot or a server restart, so undead does it. Each zsh in a tmux pane registers under the
+pane, and the agent in it is recorded with the pane's session, window and folder. When tmux starts again, the first
+shell of each session (the one `tmux new-session` starts) opens that session's recorded panes again: in the same window
+index and name where it can, panes that shared a window split into one window again, and the first pane resumes in
+place. Each new pane's shell then resumes its conversation, with its flags, like a restored tab.
+
+Nothing to configure: a login item that runs `tmux new-session -d -s main` restores `main` the moment it runs, and
+`tmux -CC new -A -s main` in iTerm2 attaches to it. A session nobody creates keeps its panes waiting; `undead reopen`
+starts it. Panes you close with tmux still running (`kill-pane`, `kill-window`, `kill-session`) stay closed, like a tab
+closed with ⌘W; `undead reopen` brings them back. Requires tmux 3.2 or later, with zsh as the shell of new panes.
+
 It doesn't poll, run a daemon, or type into a running agent. The one exception is `undead reopen`, which asks
 macOS for permission to open a new tab in your terminal and type the resume command there.
 
@@ -150,7 +165,7 @@ Tabs closed with ⌘W don't come back, but their session is still saved: `undead
 Some sessions are ignored on purpose, because they aren't the session that belongs to the tab:
 
 - agents started by other agents (for example `claude -p` run inside Claude)
-- agents inside tmux
+- agents inside tmux older than 3.2, which doesn't tell a pane's shell it is in tmux
 - Codex's internal sessions (auto-review, memory)
 - other apps that inherited a terminal's tab id (for example VS Code's terminal opened from iTerm2)
 
@@ -188,13 +203,12 @@ to spawn them again.
 
 | | |
 |---|---|
-| Terminals | iTerm2 (tabs and split panes), Terminal.app |
+| Terminals | iTerm2 (tabs and split panes), Terminal.app, tmux 3.2+ panes in any terminal |
 | Agents | Claude Code, Codex CLI |
 | Shell | zsh |
 
 Not supported yet: [VS Code and Cursor terminals](https://github.com/dimabalony/undead-ai-sessions/issues/3) (no tab id
-survives a restart), [bash and fish](https://github.com/dimabalony/undead-ai-sessions/issues/4),
-[tmux](https://github.com/dimabalony/undead-ai-sessions/issues/5), and
+survives a restart), [bash and fish](https://github.com/dimabalony/undead-ai-sessions/issues/4), and
 [Ghostty, Warp, WezTerm and Kitty](https://github.com/dimabalony/undead-ai-sessions/issues/6).
 
 ### Something's wrong — where do I look?
@@ -209,7 +223,7 @@ Everything stays on your Mac. undead touches:
 - `~/.zshrc`: one marked block
 - `~/.claude/settings.json`: a `SessionStart` and a `SessionEnd` hook
 - `~/.codex/hooks.json`: a `SessionStart` hook
-- `~/.local/state/undead`: saved sessions, the log, and backups of the files above
+- `~/.local/state/undead`: saved sessions, where tmux panes were, the log, and backups of the files above
 - `~/.config/undead`: whether the support message is hidden
 - `~/.local/share/undead` and `~/.local/bin/undead`: the program itself
 

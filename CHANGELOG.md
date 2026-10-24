@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- tmux panes come back after a reboot or a tmux server restart (#5). Each pane's shell registers under the pane, and
+  the agent in it is recorded with its session, window and folder. When tmux starts again, the first shell of each
+  session opens that session's panes again, in their window index and name where they are free, and each resumes its
+  conversation with its flags. No configuration: a login item running `tmux new-session -d -s NAME` is enough
+- Exactly once: panes are moved to the new server under a lock, so running more shells, or starting tmux twice,
+  restores nothing twice. A pane closed while tmux kept running stays closed; `undead reopen` brings it back into its
+  tmux session, starting the session if needed
+- tmux started from an iTerm2 or Terminal.app tab: the agent belongs to the pane, so the tab never resumes it too
+- `undead adopt`, `list`, `forget` and `doctor` know tmux panes; `doctor` checks the tmux version (3.2 or later) and
+  that new panes start zsh
+
 ## 0.3.6
 
 - An agent that exits with an error is no longer treated as closed: its session is kept for the next restore, with a
