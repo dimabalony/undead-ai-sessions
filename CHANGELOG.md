@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-10-24)
 
 - tmux panes come back after a reboot or a tmux server restart (#5). Each pane's shell registers under the pane, and
   the agent in it is recorded with its session, window and folder. When tmux starts again, the first shell of each
