@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1 (unreleased)
+## 0.4.1 (2026-11-20)
 
 - A tab comes back in the folder the agent was started from. Claude Code fires `SessionStart` again after an
   auto-compact, `/clear` or resume, and its `cwd` is then wherever the agent's Bash tool had gone (a sub-repo, a

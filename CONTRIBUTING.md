@@ -31,8 +31,8 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   otherwise a detached timer forgets 10 s later, but only if the shell is still alive and the record's inode is
   unchanged. Codex's `SessionEnd` reason is hardcoded to `"other"` in 0.154, so it relies on the timer.
 - **The folder is the tab shell's, not the agent's.** Claude Code fires `SessionStart` again after an auto-compact,
-  `/clear` or resume, and the hook's `cwd` is then wherever the Bash tool had `cd`'d to: 5 of 13 live records had
-  drifted into a sub-repo, a worktree or a scratch folder. The shell that started the agent stays in the launch folder
+  `/clear` or resume, and the hook's `cwd` is then wherever the Bash tool had `cd`'d to: a sub-repo, a worktree or a
+  scratch folder. The shell that started the agent stays in the launch folder
   while the agent runs, and `lsof -a -p <pid> -d cwd` reads it (about 80 ms). The agent's `cwd` is only the fallback,
   in the hook and in `undead adopt`, whose session file and rollout header drift the same way.
 - **Only suspended jobs block forgetting**, not any background job (`${#jobstates}` counts running jobs too).
