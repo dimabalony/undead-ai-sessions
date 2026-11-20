@@ -12,7 +12,7 @@ CI runs the same suite on `macos-latest` for every push and pull request.
    (tab id + the shell's start time, which makes a reused pid detectable).
 3. `lib/hook` runs as a `SessionStart` hook in both agents. It climbs the process tree hook → agent (→ `node` for
    Codex's launcher) → the shell that started the agent. If that shell is registered, it writes
-   `~/.local/state/undead/tabs/<tab id>`: tool, session id, cwd, and the flags to replay.
+   `~/.local/state/undead/tabs/<tab id>`: tool, session id, the shell's folder, and the flags to replay.
 4. When the terminal restores the tab, the new shell finds that file and runs `claude --resume` / `codex resume` in the
    saved directory, in the same tab.
 
@@ -30,6 +30,11 @@ CI runs the same suite on `macos-latest` for every push and pull request.
   a terminal that disappears both report `other`, so they are safe); running another command in the tab forgets; and
   otherwise a detached timer forgets 10 s later, but only if the shell is still alive and the record's inode is
   unchanged. Codex's `SessionEnd` reason is hardcoded to `"other"` in 0.154, so it relies on the timer.
+- **The folder is the tab shell's, not the agent's.** Claude Code fires `SessionStart` again after an auto-compact,
+  `/clear` or resume, and the hook's `cwd` is then wherever the Bash tool had `cd`'d to: 5 of 13 live records had
+  drifted into a sub-repo, a worktree or a scratch folder. The shell that started the agent stays in the launch folder
+  while the agent runs, and `lsof -a -p <pid> -d cwd` reads it (about 80 ms). The agent's `cwd` is only the fallback,
+  in the hook and in `undead adopt`, whose session file and rollout header drift the same way.
 - **Only suspended jobs block forgetting**, not any background job (`${#jobstates}` counts running jobs too).
 - **A failure exit is not a close.** Every deliberate close exits with 0 and a kill by signal reports 128+n, so a
   status of 1–127 means the agent failed, and the record is kept with a hint to start it again. When the failure
@@ -144,7 +149,7 @@ one flag per line.
 
 ## Tests
 
-`test/run` (about 3 min, 328 checks; the tmux suite needs tmux and skips without it) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
+`test/run` (about 3 min, 335 checks; the tmux suite needs tmux and skips without it) or `test/run shell` for one suite. Everything runs against a throwaway `HOME`;
 nothing touches the real config. Stand-in agents are symlinks to zsh, so `ps` shows them as `claude`/`codex`/`node`
 and the process-tree logic is exercised for real. Pseudo-terminals come from `script`, which on macOS never passes
 end-of-input, so `pty_shell` types `exit` and has a watchdog; `pty_bg` is for tests that kill the shell instead

@@ -48,6 +48,29 @@ check "Terminal.app tabs are recorded" record_is terminal-6F0C1D52-TERM "claude
 aaaa-9
 $W"
 
+print -r -- "Folder"
+# Claude Code fires SessionStart again after an auto-compact, /clear or resume, with the cwd its Bash tool went to
+mkdir -p $W/sub
+tab_shell F1 "claude -f $EMIT claude start $(hook_json ffff-14 $W/sub)"
+check "the folder is the tab shell's, not the cwd the hook is given" record_is iterm2-F1 "claude
+ffff-14
+$W"
+
+tab_shell F2 "claude -f $EMIT claude start $(hook_json ffff-15 $W); claude -f $EMIT claude start $(hook_json ffff-15 $W/sub)"
+check "a second SessionStart from a drifted cwd keeps the folder" record_is iterm2-F2 "claude
+ffff-15
+$W"
+
+tab_shell F3 "node -f -c 'codex -f $EMIT codex start $(hook_json cccc-16 $W/sub $SANDBOX/cli.jsonl); :'"
+check "codex is recorded in the tab shell's folder too" record_is iterm2-F3 "codex
+cccc-16
+$W"
+
+tab_shell F4 "claude -f $EMIT claude start $(hook_json ffff-17 $W/sub)" PATH=$NOCWD:$SANDBOX/agents:$PATH
+check "the hook's cwd is the fallback when the shell's folder can't be read" record_is iterm2-F4 "claude
+ffff-17
+$W/sub"
+
 print -r -- "Closing"
 print -rl -- claude bbbb-10 $W > $STATE/tabs/iterm2-B1
 tab_shell B1 "claude -f $EMIT claude end $(hook_json bbbb-10 $W '' prompt_input_exit)"

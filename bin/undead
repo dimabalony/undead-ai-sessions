@@ -238,6 +238,8 @@ adopt_run() {
       sid=$(adopt_json $file sessionId)
       cwd=$(adopt_json $file cwd)
     fi
+    # Both records can hold a folder the agent's Bash tool went to; the tab's shell is still where it started the agent
+    undead_cwd_of $shell && cwd=$REPLY
     [[ $sid =~ '^[0-9a-fA-F-]+$' && -n $cwd ]] ||
       { adopt_stuck "$tool[$pid] has no usable session id or cwd" "$tool on $tty: its session record is incomplete" $hint; continue }
 

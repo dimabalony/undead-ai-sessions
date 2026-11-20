@@ -68,9 +68,9 @@ cat > $SANDBOX/emit.zsh <<'EOF'
 :
 EOF
 
-# Writes hook JSON to a file and prints its path. Usage: hook_json SESSION_ID CWD [TRANSCRIPT] [REASON]
+# Writes hook JSON to a new file and prints its path. Usage: hook_json SESSION_ID CWD [TRANSCRIPT] [REASON]
 hook_json() {
-  local transcript=null file=$SANDBOX/json.$1.${4:-other}
+  local transcript=null file=$(mktemp $SANDBOX/json.$1.XXXXXX)
   [[ -n $3 ]] && transcript="\"$3\""
   print -r -- "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"transcript_path\":$transcript,\"reason\":\"${4:-other}\",\"hook_event_name\":\"x\"}" > $file
   print -r -- $file
@@ -120,4 +120,10 @@ pty_bg() {
   local out=$1 input=$2; shift 2
   { eval "$input" } | env ZDOTDIR=$SANDBOX/zdot "$@" script -q /dev/null zsh --no-globalrcs -i > $out 2>&1 &
 }
+# An lsof that can't read any process's folder, so the hook and adopt fall back to the cwd the agent reports.
+# Usage: PATH=$NOCWD:$PATH ...
+NOCWD=$SANDBOX/nocwd
+mkdir -p $NOCWD
+print -l -- '#!/bin/sh' 'case " $* " in *" cwd "*) exit 1 ;; esac' 'exec /usr/sbin/lsof "$@"' > $NOCWD/lsof
+chmod +x $NOCWD/lsof
 iterm() { print -r -- "TERM_PROGRAM=iTerm.app ITERM_SESSION_ID=w0t0p0:$1" }

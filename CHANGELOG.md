@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 (unreleased)
+
+- A tab comes back in the folder the agent was started from. Claude Code fires `SessionStart` again after an
+  auto-compact, `/clear` or resume, and its `cwd` is then wherever the agent's Bash tool had gone (a sub-repo, a
+  worktree, a scratch folder), so the record moved there and the tab was restored in the wrong project, or in a
+  worktree that no longer existed. The hook and `undead adopt` now take the folder of the tab's shell, which stays
+  where it started the agent, and fall back to the agent's `cwd` only when that can't be read
+
 ## 0.4.0 (2026-10-24)
 
 - tmux panes come back after a reboot or a tmux server restart (#5). Each pane's shell registers under the pane, and

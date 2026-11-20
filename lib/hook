@@ -49,7 +49,9 @@ if [[ $event == end ]]; then
   exit 0
 fi
 
-cwd=$(json cwd)
+# The folder is the one the tab shell started the agent from. The hook's cwd is where the agent is now: Claude Code
+# fires SessionStart again after an auto-compact, /clear or resume, from wherever its Bash tool has `cd`'d to.
+undead_cwd_of $pid && cwd=$REPLY || cwd=$(json cwd)
 [[ -n $cwd ]] || { log "skip: $sid has no cwd"; exit 0 }
 [[ -r $shell.cmd ]] && undead_replay_flags $tool "$(<$shell.cmd)"
 args=("${(@)reply}")

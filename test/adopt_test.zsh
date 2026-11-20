@@ -16,8 +16,11 @@ C3=F3330000-2222-3333-4444-555566667777  # codex: nothing open
 SESSION=beee9ec1-7552-4c87-8a5a-d12180adb2f6
 CODEX_ID=019f92e4-7f0f-7f31-a12e-b6238fdfa78f
 ROLLOUTS=$HOME/.codex/sessions/2026/09/16
-mkdir -p $HOME/.claude/sessions $ROLLOUTS $SANDBOX/adoptzdot
-print -l -- "PS1='%# '" "PATH=$SANDBOX/agents:\$PATH" > $SANDBOX/adoptzdot/.zshrc
+# The tab shells sit in work/, the folder each agent was started from. The agents' own records say drifted/, where
+# their Bash tool went, so a record in work/ proves the folder came from the shell.
+DRIFTED=$SANDBOX/work/drifted
+mkdir -p $HOME/.claude/sessions $ROLLOUTS $SANDBOX/adoptzdot $DRIFTED
+print -l -- "PS1='%# '" "PATH=$SANDBOX/agents:\$PATH" "cd $SANDBOX/work" > $SANDBOX/adoptzdot/.zshrc
 
 # An agent that reports its own pid and tty, holds any rollouts it is given open, then waits. Started as
 # `claude -f <body> <flags>`, so `ps` shows the flags the user typed.
@@ -31,7 +34,7 @@ body() {
 rollout() {  # rollout UUID SOURCE_JSON -> path
   local f=$ROLLOUTS/rollout-2026-09-16T10-00-00-$1.jsonl
   # JSONL, like the real thing: only the first line is a JSON object
-  print -rl -- "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$1\",\"cwd\":\"$SANDBOX/work\",\"source\":$2}}" \
+  print -rl -- "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$1\",\"cwd\":\"$DRIFTED\",\"source\":$2}}" \
     '{"type":"event_msg","payload":{"type":"user_message","message":"hello"}}' \
     '{"type":"event_msg","payload":{"type":"agent_message","message":"hi"}}' > $f
   print -r -- $f
@@ -89,7 +92,7 @@ utc_start() { REPLY=$(TZ=UTC date -r $(date -j -f '%a %b %e %H:%M:%S %Y' "${(j: 
 session_json() {  # session_json PID KIND [PROCSTART]
   local start=$3
   [[ -n $start ]] || { utc_start $1; start=$REPLY }
-  print -r -- "{\"pid\":$1,\"sessionId\":\"$SESSION\",\"cwd\":\"$SANDBOX/work\",\"procStart\":\"$start\",\"kind\":\"$2\",\"entrypoint\":\"cli\"}" \
+  print -r -- "{\"pid\":$1,\"sessionId\":\"$SESSION\",\"cwd\":\"$DRIFTED\",\"procStart\":\"$start\",\"kind\":\"$2\",\"entrypoint\":\"cli\"}" \
     > $HOME/.claude/sessions/$1.json
 }
 for label in a t v m n; do
@@ -150,6 +153,7 @@ opus
 --add-dir
 /a
 /b"
+check "...in the folder its shell started it from, not the one in its session file" eval '[[ "$(<$STATE/tabs/iterm2-$A)" != *drifted* ]]'
 check "registers the tab's shell" has $STATE/shells/$PPID_A iterm2-$A
 check "...with its start time, so a reused pid is detectable" eval 'line $STATE/shells/$PPID_A 2; [[ $REPLY == "$(ps -o lstart= -p $PPID_A)" ]]'
 check "says so in the log" logged "adopted $SESSION for tab iterm2-$A"
@@ -163,6 +167,7 @@ $SANDBOX/work
 -s
 workspace-write"
 check "...so a subagent's rollout is ignored" eval '[[ "$(<$STATE/tabs/iterm2-$C1)" != *01a0712f* ]]'
+check "...in its shell's folder, not the one in the rollout header" eval '[[ "$(<$STATE/tabs/iterm2-$C1)" != *drifted* ]]'
 check "two open conversations are not guessed between" missing $STATE/tabs/iterm2-$C2
 check "...and reported" eval '[[ $out == *"codex on"*"several open sessions"* ]]'
 check "no open conversation is reported too" missing $STATE/tabs/iterm2-$C3
@@ -196,8 +201,13 @@ check "a claude with no session file is skipped" missing $STATE/tabs/iterm2-$A
 check "...and reported" eval '[[ $out == *"no session file"* ]]'
 check "the message stays on one line per session" one_line "${${(M)${(f)out}:#*no session file*}[1]}"
 
+print -r -- "fallback"
 clear_state
 session_json $PID_A interactive
+out=$(PATH=$NOCWD:$SANDBOX/bin:$PATH $U adopt 2>&1)
+check "the session file's cwd is the fallback when the shell's folder can't be read" eval 'line $STATE/tabs/iterm2-$A 3; [[ $REPLY == $DRIFTED ]]'
+
+clear_state
 kill -KILL $PID_A 2>/dev/null
 wait_until 5 eval '! kill -0 $PID_A 2>/dev/null'
 adopt

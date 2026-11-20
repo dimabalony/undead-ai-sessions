@@ -178,6 +178,20 @@ undead_env_of() {
   (( ${#undead_env} ))
 }
 
+# The folder a process is in, read with lsof (about 80 ms). A tab shell stays in the folder it started the agent from
+# for as long as the agent runs, while the cwd the agent reports follows its Bash tool's `cd`. lsof is in /usr/sbin,
+# which a scrubbed PATH lacks. Usage: undead_cwd_of PID -> REPLY
+undead_cwd_of() {
+  emulate -L zsh
+  local line
+  REPLY=
+  [[ $1 == <-> ]] || return 1
+  for line in ${(f)"$(${commands[lsof]:-/usr/sbin/lsof} -a -p $1 -d cwd -Fn 2>/dev/null)"}; do
+    [[ $line == n* ]] && { REPLY=${line#n}; break }
+  done
+  [[ $REPLY == /* && -d $REPLY ]] || { REPLY=; return 1 }
+}
+
 # The `source` of a Codex rollout header: "cli" for a session started in a terminal, otherwise the kind of internal
 # session it is. Fails while Codex is still writing the first line.
 undead_rollout_source() {
